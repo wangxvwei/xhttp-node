@@ -256,15 +256,15 @@ cf_issue_origin_cert() {
 
   echo
   echo "认证方式："
-  echo "1. Cloudflare API Token (Bearer)"
-  echo "2. Cloudflare Origin CA Key"
-  echo "3. Cloudflare Global API Key + Email"
+  echo "1. Cloudflare Global API Key + 账号邮箱（推荐）"
+  echo "2. Cloudflare API Token (Bearer，需要能创建 Origin CA 证书)"
+  echo "3. Cloudflare Origin CA Key（旧方式；如果后台显示已弃用/禁用，请不要选）"
   read -r -p "请选择 [默认: 1]: " auth_mode
   auth_mode="${auth_mode:-1}"
   read -r -s -p "请输入 Cloudflare 密钥/Token: " cf_secret
   echo
   cf_email=""
-  if [ "$auth_mode" = "3" ]; then
+  if [ "$auth_mode" = "1" ]; then
     read -r -p "请输入 Cloudflare 账号邮箱: " cf_email
   fi
 
@@ -305,12 +305,12 @@ payload = {
 }
 headers = {"Content-Type": "application/json", "Accept": "application/json"}
 if mode == "1":
-    headers["Authorization"] = f"Bearer {secret}"
-elif mode == "2":
-    headers["X-Auth-User-Service-Key"] = secret
-elif mode == "3":
     headers["X-Auth-Email"] = email
     headers["X-Auth-Key"] = secret
+elif mode == "2":
+    headers["Authorization"] = f"Bearer {secret}"
+elif mode == "3":
+    headers["X-Auth-User-Service-Key"] = secret
 else:
     raise SystemExit("Invalid auth mode")
 
@@ -326,11 +326,28 @@ try:
 except urllib.error.HTTPError as e:
     body = e.read().decode("utf-8", "replace")
     print(body.replace(secret, "[redacted]"))
+    print()
+    print("Cloudflare 认证失败排查：")
+    print("- 使用 Global API Key 时，请选择 1，并填写这个 Cloudflare 账号的登录邮箱。")
+    print("- 使用 API Token 时，请选择 2；只带 DNS Edit 权限的 Token 通常不够。")
+    print("- 如果后台显示 Origin CA Key 已弃用/禁用，请不要选择 3。")
     raise SystemExit(1)
 
 data = json.loads(body)
 if not data.get("success"):
-    print(json.dumps(data.get("errors"), ensure_ascii=False))
+    errors = data.get("errors") or []
+    print(json.dumps(errors, ensure_ascii=False))
+    for err in errors:
+        code = err.get("code")
+        msg = err.get("message", "")
+        if code == 1010 or "not part of your account" in msg:
+            print()
+            print("提示：Cloudflare 认为这个域名不在当前账号下面。")
+            print("请确认 57330.xyz 确实在你输入邮箱对应的 Cloudflare 账号中，")
+            print("并且 Global API Key 也来自同一个账号。")
+        if code == 9106:
+            print()
+            print("提示：Authentication failed。请确认选择的认证方式和密钥类型一致。")
     raise SystemExit(1)
 
 cert = data["result"]["certificate"]
@@ -367,10 +384,10 @@ base = "https://api.cloudflare.com/client/v4"
 
 headers = {"Content-Type": "application/json", "Accept": "application/json"}
 if mode == "1":
-    headers["Authorization"] = f"Bearer {secret}"
-elif mode == "3":
     headers["X-Auth-Email"] = email
     headers["X-Auth-Key"] = secret
+elif mode == "2":
+    headers["Authorization"] = f"Bearer {secret}"
 else:
     print("当前认证方式通常不能管理 DNS，跳过。")
     raise SystemExit(0)
