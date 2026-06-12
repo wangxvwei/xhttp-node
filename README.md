@@ -19,7 +19,7 @@ This script is intentionally conservative:
 - If the 3x-ui panel backend path is `/`, the panel subdomain proxies `/` so absolute assets such as `/assets/...` keep working.
 - The panel backend port, protocol, and public path are read from 3x-ui and are not normal editable prompts. Change them in 3x-ui first, then rerun this script.
 - The script does not create or edit xhttp inbounds in 3x-ui. Create the xhttp inbound manually in the panel first.
-- When configuring Nginx, the script reads existing 3x-ui xhttp inbounds from the VPS and uses the selected inbound's Path and local port.
+- When configuring Nginx, the script reads existing 3x-ui xhttp inbounds from the VPS and can proxy all, multiple selected, or one selected inbound by Path and local port.
 - Nginx changes are backed up and tested before reload; failed tests roll back automatically.
 
 Main flow:

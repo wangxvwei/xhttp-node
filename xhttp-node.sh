@@ -12,6 +12,7 @@ DOMAIN=""
 PANEL_DOMAIN=""
 XHTTP_PATH=""
 XHTTP_PORT=""
+XHTTP_ROUTES=""
 PANEL_PORT=""
 PANEL_SCHEME=""
 PANEL_PUBLIC_PATH=""
@@ -50,11 +51,12 @@ load_config() {
 
 save_config() {
   ensure_dirs
-  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_panel_port q_panel_scheme q_panel_public_path q_panel_backend_path q_web_root q_cert_file q_key_file
+  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_xhttp_routes q_panel_port q_panel_scheme q_panel_public_path q_panel_backend_path q_web_root q_cert_file q_key_file
   q_domain="$(printf "%s" "$DOMAIN" | sed "s/'/'\\\\''/g")"
   q_panel_domain="$(printf "%s" "$PANEL_DOMAIN" | sed "s/'/'\\\\''/g")"
   q_xhttp_path="$(printf "%s" "$XHTTP_PATH" | sed "s/'/'\\\\''/g")"
   q_xhttp_port="$(printf "%s" "$XHTTP_PORT" | sed "s/'/'\\\\''/g")"
+  q_xhttp_routes="$(printf "%s" "$XHTTP_ROUTES" | sed "s/'/'\\\\''/g")"
   q_panel_port="$(printf "%s" "$PANEL_PORT" | sed "s/'/'\\\\''/g")"
   q_panel_scheme="$(printf "%s" "$PANEL_SCHEME" | sed "s/'/'\\\\''/g")"
   q_panel_public_path="$(printf "%s" "$PANEL_PUBLIC_PATH" | sed "s/'/'\\\\''/g")"
@@ -67,6 +69,7 @@ DOMAIN='${q_domain}'
 PANEL_DOMAIN='${q_panel_domain}'
 XHTTP_PATH='${q_xhttp_path}'
 XHTTP_PORT='${q_xhttp_port}'
+XHTTP_ROUTES='${q_xhttp_routes}'
 PANEL_PORT='${q_panel_port}'
 PANEL_SCHEME='${q_panel_scheme}'
 PANEL_PUBLIC_PATH='${q_panel_public_path}'
@@ -140,9 +143,21 @@ validate_xhttp_proxy() {
   [ -n "$WEB_ROOT" ] || { red "静态网站目录不能为空。没有现成网站时可填 /var/www/你的主域名"; return 1; }
   [ -n "$CERT_FILE" ] || { red "证书路径不能为空。"; return 1; }
   [ -n "$KEY_FILE" ] || { red "私钥路径不能为空。"; return 1; }
+  [ -n "${XHTTP_ROUTES:-}" ] || XHTTP_ROUTES="${XHTTP_PATH}|${XHTTP_PORT}"
   [[ "$XHTTP_PATH" == /* ]] || { red "Nginx xhttp 公网入口路径必须以 / 开头。"; return 1; }
   [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "Nginx xhttp 公网入口路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
   validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
+  local seen_paths="" route_path route_port
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    [[ "$route_path" == /* ]] || { red "xhttp 路径无效：${route_path}"; return 1; }
+    [[ "$route_path" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "xhttp 路径包含 Nginx 不接受的字符：${route_path}"; return 1; }
+    validate_port "$route_port" || { red "xhttp 端口无效：${route_port}"; return 1; }
+    case "$seen_paths" in
+      *"|${route_path}|"*) red "xhttp Path 重复：${route_path}"; return 1 ;;
+    esac
+    seen_paths="${seen_paths}|${route_path}|"
+  done <<< "$XHTTP_ROUTES"
 }
 
 validate_panel_proxy() {
@@ -411,6 +426,46 @@ PY
   [ "${DETECTED_XHTTP_COUNT:-0}" -gt 0 ] || return 1
 }
 
+route_path_exists() {
+  local target_path="$1"
+  local route_path route_port
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    if [ "$route_path" = "$target_path" ]; then
+      return 0
+    fi
+  done <<< "${XHTTP_ROUTES:-}"
+  return 1
+}
+
+add_xhttp_route_from_index() {
+  local index="$1"
+  local listen port path
+  eval "port=\${DETECTED_XHTTP_${index}_PORT:-}"
+  eval "path=\${DETECTED_XHTTP_${index}_PATH:-}"
+  eval "listen=\${DETECTED_XHTTP_${index}_LISTEN:-}"
+
+  validate_port "$port" || { red "读取到的 xhttp 端口无效：${port}"; return 1; }
+  [[ "$path" == /* ]] || { red "读取到的 xhttp Path 无效：${path}"; return 1; }
+  [[ "$path" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "读取到的 xhttp Path 包含 Nginx 不接受的字符：${path}"; return 1; }
+  if route_path_exists "$path"; then
+    red "xhttp Path 重复，Nginx 无法同时区分：${path}"
+    red "请先在 3x-ui 中把重复 Path 改成不同路径。"
+    return 1
+  fi
+
+  if [ -z "${XHTTP_PATH:-}" ] || [ -z "${XHTTP_PORT:-}" ]; then
+    XHTTP_PATH="$path"
+    XHTTP_PORT="$port"
+  fi
+  XHTTP_ROUTES="${XHTTP_ROUTES}${path}|${port}"$'\n'
+
+  yellow "Nginx 将接管 3x-ui 入站：${path} -> 127.0.0.1:${port}"
+  if [ -n "$listen" ] && [ "$listen" != "127.0.0.1" ] && [ "$listen" != "localhost" ]; then
+    yellow "提醒：该入站监听为 ${listen}，建议在 3x-ui 中改成 127.0.0.1 后重新执行本步骤。"
+  fi
+}
+
 select_xui_xhttp_inbound() {
   if ! detect_xui_xhttp_inbounds; then
     red "没有从 3x-ui 读取到 xhttp 入站。"
@@ -420,9 +475,12 @@ select_xui_xhttp_inbound() {
     return 1
   fi
 
-  local count choice default_choice i id remark listen port path protocol enable
+  local count choice default_choice i id remark listen port path protocol enable mode picks pick
   count="${DETECTED_XHTTP_COUNT:-0}"
   default_choice=""
+  XHTTP_PATH=""
+  XHTTP_PORT=""
+  XHTTP_ROUTES=""
   echo
   yellow "已从 3x-ui 读取到 xhttp 入站："
   [ -n "${DETECTED_XHTTP_DB:-}" ] && yellow "配置来源：${DETECTED_XHTTP_DB}（只读）"
@@ -445,33 +503,54 @@ select_xui_xhttp_inbound() {
   done
 
   if [ "$count" = "1" ]; then
-    choice="1"
     echo
     green "只检测到一个 xhttp 入站，已自动选择。"
+    add_xhttp_route_from_index 1 || return 1
   else
     [ -n "$default_choice" ] || default_choice="1"
     echo
-    read -r -p "请选择用于 Nginx 分流的 xhttp 入站 [默认: ${default_choice}]: " choice
-    [ -n "$choice" ] || choice="$default_choice"
+    echo "请选择 Nginx 接管方式："
+    echo "1. 接管全部 xhttp 入站（推荐）"
+    echo "2. 手动选择多个"
+    echo "3. 只选择一个"
+    read -r -p "请选择 [默认: 1]: " mode
+    [ -n "$mode" ] || mode="1"
+
+    case "$mode" in
+      1)
+        for i in $(seq 1 "$count"); do
+          add_xhttp_route_from_index "$i" || return 1
+        done
+        ;;
+      2)
+        read -r -p "请输入要接管的编号，可用空格或逗号分隔 [默认: ${default_choice}]: " picks
+        [ -n "$picks" ] || picks="$default_choice"
+        picks="$(printf "%s" "$picks" | tr ',' ' ')"
+        for pick in $picks; do
+          if ! [[ "$pick" =~ ^[0-9]+$ ]] || [ "$pick" -lt 1 ] || [ "$pick" -gt "$count" ]; then
+            red "选择无效：${pick}"
+            return 1
+          fi
+          add_xhttp_route_from_index "$pick" || return 1
+        done
+        ;;
+      3)
+        read -r -p "请选择用于 Nginx 分流的 xhttp 入站 [默认: ${default_choice}]: " choice
+        [ -n "$choice" ] || choice="$default_choice"
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
+          red "选择无效。"
+          return 1
+        fi
+        add_xhttp_route_from_index "$choice" || return 1
+        ;;
+      *)
+        red "选择无效。"
+        return 1
+        ;;
+    esac
   fi
 
-  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
-    red "选择无效。"
-    return 1
-  fi
-
-  eval "XHTTP_PORT=\${DETECTED_XHTTP_${choice}_PORT:-}"
-  eval "XHTTP_PATH=\${DETECTED_XHTTP_${choice}_PATH:-}"
-  eval "listen=\${DETECTED_XHTTP_${choice}_LISTEN:-}"
-
-  validate_port "$XHTTP_PORT" || { red "读取到的 xhttp 端口无效。"; return 1; }
-  [[ "$XHTTP_PATH" == /* ]] || { red "读取到的 xhttp Path 无效。"; return 1; }
-  [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "读取到的 xhttp Path 包含 Nginx 不接受的字符。"; return 1; }
-
-  yellow "Nginx 将使用 3x-ui 入站：${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}"
-  if [ -n "$listen" ] && [ "$listen" != "127.0.0.1" ] && [ "$listen" != "localhost" ]; then
-    yellow "提醒：该入站监听为 ${listen}，建议在 3x-ui 中改成 127.0.0.1 后重新执行本步骤。"
-  fi
+  [ -n "${XHTTP_ROUTES:-}" ] || { red "没有选择任何 xhttp 入站。"; return 1; }
 }
 
 save_detected_xui_panel_settings() {
@@ -850,8 +929,48 @@ nginx_test_reload_with_rollback() {
   fi
 }
 
+build_nginx_xhttp_locations() {
+  local route path port
+  while IFS='|' read -r path port; do
+    [ -n "$path" ] || continue
+    cat <<EOF
+    location ${path} {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Host ${DOMAIN};
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+EOF
+  done <<< "${XHTTP_ROUTES:-${XHTTP_PATH}|${XHTTP_PORT}}"
+}
+
+xhttp_ports_pattern() {
+  local route_path route_port ports
+  ports=""
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_port" ] || continue
+    if [ -z "$ports" ]; then
+      ports="$route_port"
+    else
+      ports="${ports}|${route_port}"
+    fi
+  done <<< "${XHTTP_ROUTES:-${XHTTP_PATH}|${XHTTP_PORT}}"
+  printf "%s" "$ports"
+}
+
 write_nginx_domain_conf() {
   mkdir -p /etc/nginx/conf.d
+  local xhttp_locations
+  xhttp_locations="$(build_nginx_xhttp_locations)"
   cat > /etc/nginx/conf.d/00-server-names-hash.conf <<'EOF'
 server_names_hash_bucket_size 64;
 EOF
@@ -869,20 +988,7 @@ server {
 
     error_page 404 /404.html;
 
-    location ${XHTTP_PATH} {
-        proxy_pass http://127.0.0.1:${XHTTP_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Host ${DOMAIN};
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection upgrade;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-    }
+${xhttp_locations}
 
     location = /404.html {
         root ${WEB_ROOT};
@@ -953,7 +1059,11 @@ nginx_xhttp_only() {
   echo
   green "当前 xhttp 分流："
   echo "https://${DOMAIN}/            -> ${WEB_ROOT}"
-  echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}（来自 3x-ui xhttp 入站）"
+  local route_path route_port
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    echo "https://${DOMAIN}${route_path} -> 127.0.0.1:${route_port}（来自 3x-ui xhttp 入站）"
+  done <<< "$XHTTP_ROUTES"
 }
 
 nginx_panel_only() {
@@ -1136,10 +1246,22 @@ print_xhttp_params() {
     select_xui_xhttp_inbound || return 1
     save_config
   fi
+  [ -n "${XHTTP_ROUTES:-}" ] || XHTTP_ROUTES="${XHTTP_PATH}|${XHTTP_PORT}"
+  local route_path route_port
   cat <<EOF
 当前 xhttp 入站 / 客户端参数：
 
-说明：端口和 Path 来自 3x-ui 已有 xhttp 入站；Nginx 会反代到这个本机端口。
+说明：端口和 Path 来自 3x-ui 已有 xhttp 入站；Nginx 会反代到对应本机端口。
+
+Nginx 当前接管：
+EOF
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    echo "- ${route_path} -> 127.0.0.1:${route_port}"
+  done <<< "$XHTTP_ROUTES"
+  cat <<EOF
+
+下面是第一个入站的客户端参数示例：
 
 协议：VLESS
 监听 IP：127.0.0.1
@@ -1164,15 +1286,20 @@ check_services_ports() {
   load_config
   detect_xui_panel_settings || true
   blue "检查端口和服务状态"
+  local xhttp_ports route_path route_port
+  xhttp_ports="$(xhttp_ports_pattern)"
   echo "服务："
   systemctl is-active nginx x-ui 2>/dev/null || true
   echo
   echo "端口："
-  ss -lntp | grep -E ":(443|${XHTTP_PORT}|${PANEL_PORT})\\b" || true
+  ss -lntp | grep -E ":(443|${xhttp_ports}|${PANEL_PORT})\\b" || true
   echo
   echo "期望："
   echo "0.0.0.0:443          nginx"
-  echo "127.0.0.1:${XHTTP_PORT}   xray xhttp 入站"
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    echo "127.0.0.1:${route_port}   xray xhttp 入站 ${route_path}"
+  done <<< "${XHTTP_ROUTES:-${XHTTP_PATH}|${XHTTP_PORT}}"
   echo "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}    x-ui 面板后端"
 }
 
@@ -1184,7 +1311,12 @@ test_endpoints() {
   curl -k -I --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true
   echo
   echo "本机经 Nginx 测试 xhttp 公网入口路径（普通 curl 返回 404/空响应可能正常）："
-  curl -k -i --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}${XHTTP_PATH}" | sed -n '1,16p' || true
+  local route_path route_port
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    echo "---- ${route_path} -> 127.0.0.1:${route_port}"
+    curl -k -i --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}${route_path}" | sed -n '1,16p' || true
+  done <<< "${XHTTP_ROUTES:-${XHTTP_PATH}|${XHTTP_PORT}}"
   echo
   echo "本机经 Nginx 测试面板："
   curl -k -I --max-time 10 --resolve "${PANEL_DOMAIN}:443:127.0.0.1" "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}" || true
@@ -1214,31 +1346,39 @@ consistency_check() {
   load_config
   detect_xui_panel_settings || true
   blue "检查 Nginx 与 3x-ui 当前状态是否匹配"
-  local ok=1 inbound_match=0 i port path
+  [ -n "${XHTTP_ROUTES:-}" ] || XHTTP_ROUTES="${XHTTP_PATH}|${XHTTP_PORT}"
+  local ok=1 inbound_match=0 i port path route_path route_port
   if detect_xui_xhttp_inbounds; then
-    for i in $(seq 1 "${DETECTED_XHTTP_COUNT:-0}"); do
-      eval "port=\${DETECTED_XHTTP_${i}_PORT:-}"
-      eval "path=\${DETECTED_XHTTP_${i}_PATH:-}"
-      if [ "$port" = "${XHTTP_PORT:-}" ] && [ "$path" = "${XHTTP_PATH:-}" ]; then
-        inbound_match=1
+    while IFS='|' read -r route_path route_port; do
+      [ -n "$route_path" ] || continue
+      inbound_match=0
+      for i in $(seq 1 "${DETECTED_XHTTP_COUNT:-0}"); do
+        eval "port=\${DETECTED_XHTTP_${i}_PORT:-}"
+        eval "path=\${DETECTED_XHTTP_${i}_PATH:-}"
+        if [ "$port" = "$route_port" ] && [ "$path" = "$route_path" ]; then
+          inbound_match=1
+        fi
+      done
+      if [ "$inbound_match" = "1" ]; then
+        green "OK：Nginx 使用的 xhttp 入站仍存在于 3x-ui：${route_path} -> ${route_port}"
+      else
+        red "警告：当前保存的 xhttp 入站没有匹配到 3x-ui：${route_path} -> ${route_port}"
+        ok=0
       fi
-    done
-    if [ "$inbound_match" = "1" ]; then
-      green "OK：Nginx 使用的 xhttp 端口和 Path 仍存在于 3x-ui 入站中"
-    else
-      red "警告：当前保存的 xhttp 端口/Path 没有匹配到 3x-ui 入站，请重新执行 4 配置 Nginx 分流"
-      ok=0
-    fi
+    done <<< "$XHTTP_ROUTES"
   else
     red "警告：没有从 3x-ui 读取到 xhttp 入站"
     ok=0
   fi
-  if ss -lntp | grep -q "127.0.0.1:${XHTTP_PORT}\\b"; then
-    green "OK：xhttp 后端端口 127.0.0.1:${XHTTP_PORT} 正在监听"
-  else
-    red "警告：Nginx 指向 127.0.0.1:${XHTTP_PORT}，但没有看到该本机端口监听"
-    ok=0
-  fi
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    if ss -lntp | grep -q "127.0.0.1:${route_port}\\b"; then
+      green "OK：xhttp 后端端口 127.0.0.1:${route_port} 正在监听"
+    else
+      red "警告：Nginx 指向 127.0.0.1:${route_port}，但没有看到该本机端口监听"
+      ok=0
+    fi
+  done <<< "$XHTTP_ROUTES"
   if ss -lntp | grep -q ":${PANEL_PORT}\\b"; then
     green "OK：面板后端端口 ${PANEL_PORT} 正在监听"
   else
@@ -1251,12 +1391,15 @@ consistency_check() {
     red "警告：443 不是 nginx 监听，或没有监听"
     ok=0
   fi
-  if grep -Rqs "proxy_pass http://127.0.0.1:${XHTTP_PORT}" /etc/nginx/conf.d; then
-    green "OK：Nginx xhttp 反代端口匹配"
-  else
-    red "警告：没有找到 Nginx -> 127.0.0.1:${XHTTP_PORT} 的 xhttp 反代"
-    ok=0
-  fi
+  while IFS='|' read -r route_path route_port; do
+    [ -n "$route_path" ] || continue
+    if grep -Rqs "proxy_pass http://127.0.0.1:${route_port}" /etc/nginx/conf.d && grep -Rqs "location ${route_path}" /etc/nginx/conf.d; then
+      green "OK：Nginx xhttp 反代匹配：${route_path} -> ${route_port}"
+    else
+      red "警告：没有找到 Nginx xhttp 反代：${route_path} -> ${route_port}"
+      ok=0
+    fi
+  done <<< "$XHTTP_ROUTES"
   if grep -Rqs "proxy_pass ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}" /etc/nginx/conf.d; then
     green "OK：Nginx 面板反代端口匹配"
   else
