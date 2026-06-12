@@ -106,6 +106,7 @@ prompt_default() {
 
 prompt_common() {
   load_config
+  detect_xui_panel_settings || true
   local default_domain="${DOMAIN:-57330.xyz}"
   prompt_default DOMAIN "请输入主域名" "$default_domain"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
@@ -139,6 +140,117 @@ validate_common() {
   [[ "$PANEL_SCHEME" == "http" || "$PANEL_SCHEME" == "https" ]] || { red "面板后端协议只能是 http 或 https。"; return 1; }
   validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
   validate_port "$PANEL_PORT" || { red "面板端口无效。"; return 1; }
+}
+
+detect_xui_panel_settings() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  local detected
+  detected="$(python3 <<'PY' 2>/dev/null || true
+import os
+import shlex
+import sqlite3
+
+db_candidates = [
+    "/etc/x-ui/x-ui.db",
+    "/usr/local/x-ui/bin/x-ui.db",
+    "/usr/local/x-ui/x-ui.db",
+]
+
+def norm_key(value):
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+def norm_path(value):
+    value = (value or "/").strip() or "/"
+    if not value.startswith("/"):
+        value = "/" + value
+    if not value.endswith("/"):
+        value += "/"
+    return value
+
+def useful(value):
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if value.lower() in {"", "null", "none", "<nil>"}:
+        return ""
+    return value
+
+settings = {}
+db_path = ""
+
+for candidate in db_candidates:
+    if not os.path.exists(candidate):
+        continue
+    try:
+        conn = sqlite3.connect(f"file:{candidate}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cur.fetchall()]
+        for table in tables:
+            if "setting" not in norm_key(table):
+                continue
+            quoted_table = '"' + table.replace('"', '""') + '"'
+            try:
+                cur.execute(f"PRAGMA table_info({quoted_table})")
+                cols = [row[1] for row in cur.fetchall()]
+            except Exception:
+                continue
+            lower_cols = {c.lower(): c for c in cols}
+            key_col = lower_cols.get("key") or lower_cols.get("name")
+            value_col = lower_cols.get("value")
+            if not key_col or not value_col:
+                continue
+            quoted_key = '"' + key_col.replace('"', '""') + '"'
+            quoted_value = '"' + value_col.replace('"', '""') + '"'
+            try:
+                cur.execute(f"SELECT {quoted_key}, {quoted_value} FROM {quoted_table}")
+                for key, value in cur.fetchall():
+                    settings[norm_key(key)] = useful(value)
+            except Exception:
+                continue
+        conn.close()
+        if settings:
+            db_path = candidate
+            break
+    except Exception:
+        continue
+
+def pick(*keys):
+    for key in keys:
+        value = settings.get(norm_key(key))
+        if value:
+            return value
+    return ""
+
+port = pick("webPort", "web_port", "panelPort", "panel_port", "port")
+try:
+    port_num = int(port)
+    if port_num < 1 or port_num > 65535:
+        port = ""
+except Exception:
+    port = ""
+
+base_path = norm_path(pick("webBasePath", "web_base_path", "basePath", "webPath", "path") or "/")
+cert_file = pick("webCertFile", "web_cert_file", "certFile", "cert_file")
+key_file = pick("webKeyFile", "web_key_file", "keyFile", "key_file")
+scheme = "https" if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file) else "http"
+
+if port:
+    print(f"DETECTED_PANEL_PORT={shlex.quote(port)}")
+    print(f"DETECTED_PANEL_BACKEND_PATH={shlex.quote(base_path)}")
+    print(f"DETECTED_PANEL_SCHEME={shlex.quote(scheme)}")
+    print(f"DETECTED_XUI_DB={shlex.quote(db_path)}")
+PY
+)"
+  [ -n "$detected" ] || return 1
+  eval "$detected"
+  [ -n "${DETECTED_PANEL_PORT:-}" ] || return 1
+  PANEL_PORT="$DETECTED_PANEL_PORT"
+  PANEL_BACKEND_PATH="${DETECTED_PANEL_BACKEND_PATH:-/}"
+  PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
+  [ -n "${PANEL_PUBLIC_PATH:-}" ] || PANEL_PUBLIC_PATH="/xui/"
+  yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
+  [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
 }
 
 backup_path() {
@@ -791,6 +903,7 @@ PY
 
 check_panel_listen() {
   load_config
+  detect_xui_panel_settings || true
   blue "检查 3x-ui 面板监听"
   echo "当前 xhttp-node 面板配置："
   echo "公网入口：https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}"
@@ -839,6 +952,7 @@ EOF
 
 check_services_ports() {
   load_config
+  detect_xui_panel_settings || true
   blue "检查端口和服务状态"
   echo "服务："
   systemctl is-active nginx x-ui 2>/dev/null || true
@@ -854,6 +968,7 @@ check_services_ports() {
 
 test_endpoints() {
   load_config
+  detect_xui_panel_settings || true
   blue "测试网站 / 面板 / xhttp 路径"
   echo "本机经 Nginx 测试静态网站："
   curl -k -I --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true
@@ -887,6 +1002,7 @@ install_shortcut() {
 
 consistency_check() {
   load_config
+  detect_xui_panel_settings || true
   blue "检查 Nginx 与 3x-ui 当前状态是否匹配"
   local ok=1
   if ss -lntp | grep -q "127.0.0.1:${XHTTP_PORT}\\b"; then

@@ -15,6 +15,7 @@ This script is intentionally conservative:
 - It does not write to the 3x-ui database.
 - It prepares system packages, Cloudflare Origin certificates, Nginx routing, static site directories, backups, checks, and a shortcut command.
 - It prints the parameters that should be filled in manually inside the 3x-ui panel.
+- It reads the current 3x-ui panel port and web base path from the VPS when possible, instead of assuming a fixed panel backend port.
 - Nginx changes are backed up and tested before reload; failed tests roll back automatically.
 
 Main flow:
