@@ -93,11 +93,43 @@ prompt_default() {
   printf -v "$var_name" '%s' "$value"
 }
 
+generate_xhttp_path() {
+  local bases suffix
+  bases=(
+    "/api/v1/sync"
+    "/api/v1/events"
+    "/api/v1/updates"
+    "/api/v2/stream"
+    "/api/v2/session"
+    "/service/v1/connect"
+    "/service/v1/notify"
+    "/gateway/v1/data"
+    "/gateway/v2/relay"
+    "/static/api/resource"
+    "/assets/api/update"
+    "/media/api/list"
+    "/data/v1/push"
+    "/data/v2/pull"
+    "/rpc/v1/channel"
+    "/rpc/v2/message"
+  )
+  if command -v openssl >/dev/null 2>&1; then
+    suffix="$(openssl rand -hex 4)"
+  else
+    suffix="$(date +%s | sha256sum | awk '{print substr($1,1,8)}')"
+  fi
+  printf "%s/%s" "${bases[RANDOM % ${#bases[@]}]}" "$suffix"
+}
+
 prompt_common() {
   load_config
   detect_xui_panel_settings || true
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
+  if [ -z "${XHTTP_PATH:-}" ]; then
+    XHTTP_PATH="$(generate_xhttp_path)"
+    yellow "已随机生成 xhttp 路径：${XHTTP_PATH}"
+  fi
   prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
   prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
@@ -125,6 +157,7 @@ validate_common() {
   [ -n "$DOMAIN" ] || { red "主域名不能为空。"; return 1; }
   [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
   [[ "$XHTTP_PATH" == /* ]] || { red "xhttp 路径必须以 / 开头。"; return 1; }
+  [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "xhttp 路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == /* ]] || { red "面板公网路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_BACKEND_PATH" == /* ]] || { red "面板后端路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == */ ]] || PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH}/"

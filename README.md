@@ -18,6 +18,7 @@ This script is intentionally conservative:
 - It reads the current 3x-ui panel port and web base path from the VPS when possible, instead of assuming a fixed panel backend port.
 - If the 3x-ui panel backend path is `/`, the panel subdomain proxies `/` so absolute assets such as `/assets/...` keep working.
 - The panel backend port, protocol, and backend path are read from 3x-ui and are not normal editable prompts. Change them in 3x-ui first, then rerun this script.
+- If no xhttp path is saved yet, the script generates a normal-looking URL path from built-in templates and a short random suffix, then saves it.
 - Nginx changes are backed up and tested before reload; failed tests roll back automatically.
 
 Main flow:
