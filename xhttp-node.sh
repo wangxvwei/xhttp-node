@@ -105,8 +105,7 @@ prompt_default() {
 prompt_common() {
   load_config
   detect_xui_panel_settings || true
-  local default_domain="${DOMAIN:-57330.xyz}"
-  prompt_default DOMAIN "请输入主域名" "$default_domain"
+  prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
   prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-/api/v1/sync}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-10000}"
@@ -389,7 +388,7 @@ verify_cert_pair() {
 
 cf_issue_origin_cert() {
   blue "使用 Cloudflare API 自动签发 Origin 证书"
-  prompt_default DOMAIN "请输入主域名" "${DOMAIN:-57330.xyz}"
+  prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
   WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
   XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
@@ -487,7 +486,7 @@ if not data.get("success"):
         if code == 1010 or "not part of your account" in msg:
             print()
             print("提示：Cloudflare 认为这个域名不在当前账号下面。")
-            print("请确认 57330.xyz 确实在你输入邮箱对应的 Cloudflare 账号中，")
+            print(f"请确认 {domain} 确实在你输入邮箱对应的 Cloudflare 账号中，")
             print("并且 Global API Key 也来自同一个账号。")
         if code == 9106:
             print()
@@ -568,7 +567,7 @@ PY
 
 cf_existing_cert() {
   blue "使用已有 Cloudflare Origin 证书文件"
-  prompt_default DOMAIN "请输入主域名" "${DOMAIN:-57330.xyz}"
+  prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
   local src_cert src_key
   prompt_default src_cert "请输入已有证书文件路径" "/root/cf-origin.pem"

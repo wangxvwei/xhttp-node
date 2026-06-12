@@ -22,9 +22,9 @@ This script is intentionally conservative:
 Main flow:
 
 ```text
-57330.xyz/              -> static site
-57330.xyz/api/v1/sync   -> 127.0.0.1:10000 xhttp
-panel.57330.xyz/xui/    -> http://127.0.0.1:2053/ 3x-ui panel
+example.com/              -> static site
+example.com/api/v1/sync   -> 127.0.0.1:10000 xhttp
+panel.example.com/xui/    -> detected 3x-ui panel backend
 ```
 
 Usage on a fresh Debian/Ubuntu VPS:
