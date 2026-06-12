@@ -113,7 +113,8 @@ prompt_panel_proxy() {
     return 1
   fi
   yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
-  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
+  PANEL_PUBLIC_PATH="$PANEL_BACKEND_PATH"
+  yellow "面板公网路径自动使用 3x-ui Web Base Path：${PANEL_PUBLIC_PATH}"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
   validate_panel_proxy || return 1
