@@ -1,0 +1,10 @@
+work/
+*.log
+*.tmp
+*.bak
+*.tar
+*.tar.gz
+*.zip
+*.pem
+*.key
+cf-origin-result.json
