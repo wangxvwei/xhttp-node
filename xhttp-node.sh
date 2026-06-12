@@ -17,6 +17,12 @@ PANEL_PORT=""
 PANEL_SCHEME=""
 PANEL_PUBLIC_PATH=""
 PANEL_BACKEND_PATH=""
+SUB_ENABLE=""
+SUB_PORT=""
+SUB_SCHEME=""
+SUB_PUBLIC_PATH=""
+SUB_BACKEND_PATH=""
+SUB_PUBLIC_URI=""
 WEB_ROOT=""
 CERT_FILE=""
 KEY_FILE=""
@@ -51,7 +57,7 @@ load_config() {
 
 save_config() {
   ensure_dirs
-  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_xhttp_routes q_panel_port q_panel_scheme q_panel_public_path q_panel_backend_path q_web_root q_cert_file q_key_file
+  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_xhttp_routes q_panel_port q_panel_scheme q_panel_public_path q_panel_backend_path q_sub_enable q_sub_port q_sub_scheme q_sub_public_path q_sub_backend_path q_sub_public_uri q_web_root q_cert_file q_key_file
   q_domain="$(printf "%s" "$DOMAIN" | sed "s/'/'\\\\''/g")"
   q_panel_domain="$(printf "%s" "$PANEL_DOMAIN" | sed "s/'/'\\\\''/g")"
   q_xhttp_path="$(printf "%s" "$XHTTP_PATH" | sed "s/'/'\\\\''/g")"
@@ -61,6 +67,12 @@ save_config() {
   q_panel_scheme="$(printf "%s" "$PANEL_SCHEME" | sed "s/'/'\\\\''/g")"
   q_panel_public_path="$(printf "%s" "$PANEL_PUBLIC_PATH" | sed "s/'/'\\\\''/g")"
   q_panel_backend_path="$(printf "%s" "$PANEL_BACKEND_PATH" | sed "s/'/'\\\\''/g")"
+  q_sub_enable="$(printf "%s" "$SUB_ENABLE" | sed "s/'/'\\\\''/g")"
+  q_sub_port="$(printf "%s" "$SUB_PORT" | sed "s/'/'\\\\''/g")"
+  q_sub_scheme="$(printf "%s" "$SUB_SCHEME" | sed "s/'/'\\\\''/g")"
+  q_sub_public_path="$(printf "%s" "$SUB_PUBLIC_PATH" | sed "s/'/'\\\\''/g")"
+  q_sub_backend_path="$(printf "%s" "$SUB_BACKEND_PATH" | sed "s/'/'\\\\''/g")"
+  q_sub_public_uri="$(printf "%s" "$SUB_PUBLIC_URI" | sed "s/'/'\\\\''/g")"
   q_web_root="$(printf "%s" "$WEB_ROOT" | sed "s/'/'\\\\''/g")"
   q_cert_file="$(printf "%s" "$CERT_FILE" | sed "s/'/'\\\\''/g")"
   q_key_file="$(printf "%s" "$KEY_FILE" | sed "s/'/'\\\\''/g")"
@@ -74,6 +86,12 @@ PANEL_PORT='${q_panel_port}'
 PANEL_SCHEME='${q_panel_scheme}'
 PANEL_PUBLIC_PATH='${q_panel_public_path}'
 PANEL_BACKEND_PATH='${q_panel_backend_path}'
+SUB_ENABLE='${q_sub_enable}'
+SUB_PORT='${q_sub_port}'
+SUB_SCHEME='${q_sub_scheme}'
+SUB_PUBLIC_PATH='${q_sub_public_path}'
+SUB_BACKEND_PATH='${q_sub_backend_path}'
+SUB_PUBLIC_URI='${q_sub_public_uri}'
 WEB_ROOT='${q_web_root}'
 CERT_FILE='${q_cert_file}'
 KEY_FILE='${q_key_file}'
@@ -179,6 +197,25 @@ prompt_panel_proxy() {
   save_config
 }
 
+prompt_sub_proxy() {
+  load_config
+  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
+  if ! detect_xui_sub_settings; then
+    red "没有读取到已启用的 3x-ui 订阅服务配置。"
+    red "请先在 3x-ui 面板的订阅设置中启用订阅服务，并设置监听端口和 URI 路径。"
+    return 1
+  fi
+  SUB_PUBLIC_PATH="$SUB_BACKEND_PATH"
+  SUB_PUBLIC_URI="https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}"
+  detect_xui_panel_settings || true
+  yellow "订阅后端从 3x-ui 当前配置读取：${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}"
+  yellow "订阅公网路径自动使用 3x-ui URI 路径：${SUB_PUBLIC_PATH}"
+  prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
+  prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
+  validate_sub_proxy || return 1
+  save_config
+}
+
 validate_port() {
   local value="$1"
   [[ "$value" =~ ^[0-9]+$ ]] || return 1
@@ -217,6 +254,25 @@ validate_panel_proxy() {
   [[ "$PANEL_BACKEND_PATH" == */ ]] || PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH}/"
   [[ "$PANEL_SCHEME" == "http" || "$PANEL_SCHEME" == "https" ]] || { red "面板后端协议只能是 http 或 https。"; return 1; }
   validate_port "$PANEL_PORT" || { red "面板端口无效。"; return 1; }
+}
+
+validate_sub_proxy() {
+  [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
+  [ -n "$CERT_FILE" ] || { red "证书路径不能为空。"; return 1; }
+  [ -n "$KEY_FILE" ] || { red "私钥路径不能为空。"; return 1; }
+  [[ "$SUB_PUBLIC_PATH" == /* ]] || { red "订阅公网路径必须以 / 开头。"; return 1; }
+  [[ "$SUB_BACKEND_PATH" == /* ]] || { red "订阅后端路径必须以 / 开头。"; return 1; }
+  [[ "$SUB_PUBLIC_PATH" == */ ]] || SUB_PUBLIC_PATH="${SUB_PUBLIC_PATH}/"
+  [[ "$SUB_BACKEND_PATH" == */ ]] || SUB_BACKEND_PATH="${SUB_BACKEND_PATH}/"
+  [ "$SUB_PUBLIC_PATH" != "/" ] || { red "订阅公网路径不能是 /，请在 3x-ui 中设置类似 /dingyue/ 的具体路径。"; return 1; }
+  [ "$SUB_BACKEND_PATH" != "/" ] || { red "订阅后端路径不能是 /，请在 3x-ui 中设置类似 /dingyue/ 的具体路径。"; return 1; }
+  if [ -n "${PANEL_PUBLIC_PATH:-}" ] && [ "$PANEL_PUBLIC_PATH" = "$SUB_PUBLIC_PATH" ]; then
+    red "订阅路径不能和面板路径相同。"
+    return 1
+  fi
+  [[ "$SUB_SCHEME" == "http" || "$SUB_SCHEME" == "https" ]] || { red "订阅后端协议只能是 http 或 https。"; return 1; }
+  validate_port "$SUB_PORT" || { red "订阅端口无效。"; return 1; }
+  SUB_PUBLIC_URI="https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}"
 }
 
 detect_xui_panel_settings() {
@@ -331,6 +387,125 @@ PY
   PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
   yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
+}
+
+detect_xui_sub_settings() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  local detected
+  detected="$(python3 <<'PY' 2>/dev/null || true
+import os
+import shlex
+import sqlite3
+
+db_candidates = [
+    "/etc/x-ui/x-ui.db",
+    "/usr/local/x-ui/bin/x-ui.db",
+    "/usr/local/x-ui/x-ui.db",
+]
+
+def norm_key(value):
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+def norm_path(value):
+    value = (value or "/").strip() or "/"
+    if not value.startswith("/"):
+        value = "/" + value
+    if not value.endswith("/"):
+        value += "/"
+    return value
+
+def useful(value):
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if value.lower() in {"", "null", "none", "<nil>"}:
+        return ""
+    return value
+
+settings = {}
+db_path = ""
+
+for candidate in db_candidates:
+    if not os.path.exists(candidate):
+        continue
+    try:
+        conn = sqlite3.connect(f"file:{candidate}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cur.fetchall()]
+        for table in tables:
+            if "setting" not in norm_key(table):
+                continue
+            quoted_table = '"' + table.replace('"', '""') + '"'
+            try:
+                cur.execute(f"PRAGMA table_info({quoted_table})")
+                cols = [row[1] for row in cur.fetchall()]
+            except Exception:
+                continue
+            lower_cols = {c.lower(): c for c in cols}
+            key_col = lower_cols.get("key") or lower_cols.get("name")
+            value_col = lower_cols.get("value")
+            if not key_col or not value_col:
+                continue
+            quoted_key = '"' + key_col.replace('"', '""') + '"'
+            quoted_value = '"' + value_col.replace('"', '""') + '"'
+            try:
+                cur.execute(f"SELECT {quoted_key}, {quoted_value} FROM {quoted_table}")
+                for key, value in cur.fetchall():
+                    settings[norm_key(key)] = useful(value)
+            except Exception:
+                continue
+        conn.close()
+        if settings:
+            db_path = candidate
+            break
+    except Exception:
+        continue
+
+def pick(*keys):
+    for key in keys:
+        value = settings.get(norm_key(key))
+        if value:
+            return value
+    return ""
+
+enabled = pick("subEnable", "sub_enable", "subscriptionEnable", "subscription_enable")
+if enabled.lower() not in {"true", "1", "yes", "on"}:
+    raise SystemExit(0)
+
+port = pick("subPort", "sub_port", "subscriptionPort", "subscription_port")
+try:
+    port_num = int(port)
+    if port_num < 1 or port_num > 65535:
+        port = ""
+except Exception:
+    port = ""
+
+raw_path = pick("subPath", "sub_path", "subscriptionPath", "subscription_path")
+path = norm_path(raw_path) if raw_path else ""
+cert_file = pick("subCertFile", "sub_cert_file", "subscriptionCertFile", "subscription_cert_file")
+key_file = pick("subKeyFile", "sub_key_file", "subscriptionKeyFile", "subscription_key_file")
+scheme = "https" if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file) else "http"
+
+if port and path:
+    print("DETECTED_SUB_ENABLE=true")
+    print(f"DETECTED_SUB_PORT={shlex.quote(port)}")
+    print(f"DETECTED_SUB_BACKEND_PATH={shlex.quote(path)}")
+    print(f"DETECTED_SUB_SCHEME={shlex.quote(scheme)}")
+    print(f"DETECTED_XUI_SUB_DB={shlex.quote(db_path)}")
+PY
+)"
+  [ -n "$detected" ] || return 1
+  eval "$detected"
+  [ "${DETECTED_SUB_ENABLE:-}" = "true" ] || return 1
+  SUB_ENABLE="true"
+  SUB_PORT="$DETECTED_SUB_PORT"
+  SUB_BACKEND_PATH="$DETECTED_SUB_BACKEND_PATH"
+  [ -n "${SUB_PUBLIC_PATH:-}" ] || SUB_PUBLIC_PATH="$SUB_BACKEND_PATH"
+  SUB_SCHEME="${DETECTED_SUB_SCHEME:-http}"
+  [ -n "${PANEL_DOMAIN:-}" ] && SUB_PUBLIC_URI="https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}"
+  yellow "已读取 3x-ui 当前订阅配置：${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}"
+  [ -n "${DETECTED_XUI_SUB_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_SUB_DB}（只读）"
 }
 
 detect_xui_xhttp_inbounds() {
@@ -1052,29 +1227,28 @@ EOF
 
 write_nginx_panel_conf() {
   mkdir -p /etc/nginx/conf.d
-  local panel_location
-  panel_location="$PANEL_PUBLIC_PATH"
-  if [ "$PANEL_BACKEND_PATH" = "/" ]; then
-    panel_location="/"
-  fi
-  cat > "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf" <<EOF
-server {
-    listen 443 ssl http2;
-    server_name ${PANEL_DOMAIN};
-    server_tokens off;
+  local panel_location panel_redirect panel_locations sub_location sub_redirect sub_locations
+  panel_locations=""
+  sub_locations=""
 
-    ssl_certificate ${CERT_FILE};
-    ssl_certificate_key ${KEY_FILE};
-
-    location = ${PANEL_PUBLIC_PATH%/} {
+  if [ -n "${PANEL_PORT:-}" ] && [ -n "${PANEL_PUBLIC_PATH:-}" ] && [ -n "${PANEL_BACKEND_PATH:-}" ]; then
+    panel_location="$PANEL_PUBLIC_PATH"
+    panel_redirect=""
+    if [ "$PANEL_BACKEND_PATH" = "/" ]; then
+      panel_location="/"
+    fi
+    if [ "$PANEL_PUBLIC_PATH" != "/" ]; then
+      panel_redirect="    location = ${PANEL_PUBLIC_PATH%/} {
         return 301 ${PANEL_PUBLIC_PATH};
     }
-
+"
+    fi
+    panel_locations="${panel_redirect}
     location ${panel_location} {
         proxy_pass ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH};
         proxy_http_version 1.1;
         proxy_ssl_verify off;
-        proxy_set_header Host 127.0.0.1:${PANEL_PORT};
+        proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto https;
@@ -1084,6 +1258,49 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
+"
+  fi
+
+  if [ -n "${SUB_PORT:-}" ] && [ -n "${SUB_PUBLIC_PATH:-}" ] && [ -n "${SUB_BACKEND_PATH:-}" ]; then
+    sub_location="$SUB_PUBLIC_PATH"
+    sub_redirect=""
+    if [ "$SUB_BACKEND_PATH" = "/" ]; then
+      sub_location="/"
+    fi
+    if [ "$SUB_PUBLIC_PATH" != "/" ]; then
+      sub_redirect="    location = ${SUB_PUBLIC_PATH%/} {
+        return 301 ${SUB_PUBLIC_PATH};
+    }
+"
+    fi
+    sub_locations="${sub_redirect}
+    location ${sub_location} {
+        proxy_pass ${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH};
+        proxy_http_version 1.1;
+        proxy_ssl_verify off;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+"
+  fi
+
+  [ -n "${panel_locations}${sub_locations}" ] || { red "没有可写入的面板域名反代配置。"; return 1; }
+
+  cat > "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf" <<EOF
+server {
+    listen 443 ssl http2;
+    server_name ${PANEL_DOMAIN};
+    server_tokens off;
+
+    ssl_certificate ${CERT_FILE};
+    ssl_certificate_key ${KEY_FILE};
+
+${panel_locations}${sub_locations}
 }
 EOF
 }
@@ -1135,6 +1352,29 @@ nginx_panel_only() {
   echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH} -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}（来自 3x-ui 面板设置）"
 }
 
+nginx_sub_only() {
+  blue "只配置订阅反代"
+  prompt_sub_proxy || return 1
+  [ -f "$CERT_FILE" ] || { red "证书不存在：$CERT_FILE"; return 1; }
+  [ -f "$KEY_FILE" ] || { red "私钥不存在：$KEY_FILE"; return 1; }
+  local nginx_snapshot
+  nginx_snapshot="$(mktemp -d /tmp/xhttp-node-nginx-before.XXXXXX)"
+  cp -a /etc/nginx "$nginx_snapshot/nginx"
+  backup_now
+  write_nginx_panel_conf
+  if ! nginx_test_reload_with_rollback "$nginx_snapshot"; then
+    rm -rf "$nginx_snapshot"
+    return 1
+  fi
+  rm -rf "$nginx_snapshot"
+  echo
+  green "当前订阅反代："
+  echo "${SUB_PUBLIC_URI} -> ${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}（来自 3x-ui 订阅设置）"
+  echo
+  yellow "请在 3x-ui 订阅设置的“反向代理 URI”填写："
+  echo "${SUB_PUBLIC_URI}"
+}
+
 view_nginx_config() {
   load_config
   echo "配置文件："
@@ -1166,20 +1406,22 @@ nginx_menu() {
     echo
     echo "1. 只配置 xhttp 分流"
     echo "2. 只配置面板反代"
-    echo "3. 查看当前 Nginx 分流配置"
-    echo "4. 测试 Nginx 配置并重载"
-    echo "5. 禁用面板 443 反代"
-    echo "6. 恢复上一次配置备份"
+    echo "3. 只配置订阅反代"
+    echo "4. 查看当前 Nginx 分流配置"
+    echo "5. 测试 Nginx 配置并重载"
+    echo "6. 禁用面板域名 443 反代"
+    echo "7. 恢复上一次配置备份"
     echo "0. 返回主菜单"
     echo
     read -r -p "请选择: " choice
     case "$choice" in
       1) nginx_xhttp_only; pause ;;
       2) nginx_panel_only; pause ;;
-      3) view_nginx_config; pause ;;
-      4) nginx_test_reload_with_rollback; pause ;;
-      5) disable_panel_proxy; pause ;;
-      6) restore_latest_backup; pause ;;
+      3) nginx_sub_only; pause ;;
+      4) view_nginx_config; pause ;;
+      5) nginx_test_reload_with_rollback; pause ;;
+      6) disable_panel_proxy; pause ;;
+      7) restore_latest_backup; pause ;;
       0) return ;;
       *) yellow "无效选择"; pause ;;
     esac
@@ -1328,14 +1570,19 @@ EOF
 check_services_ports() {
   load_config
   detect_xui_panel_settings || true
+  detect_xui_sub_settings || true
   blue "检查端口和服务状态"
-  local xhttp_ports route_path route_port
+  local xhttp_ports ports route_path route_port
   xhttp_ports="$(xhttp_ports_pattern)"
+  ports="443"
+  [ -n "$xhttp_ports" ] && ports="${ports}|${xhttp_ports}"
+  [ -n "${PANEL_PORT:-}" ] && ports="${ports}|${PANEL_PORT}"
+  [ -n "${SUB_PORT:-}" ] && ports="${ports}|${SUB_PORT}"
   echo "服务："
   systemctl is-active nginx x-ui 2>/dev/null || true
   echo
   echo "端口："
-  ss -lntp | grep -E ":(443|${xhttp_ports}|${PANEL_PORT})\\b" || true
+  ss -lntp | grep -E ":(${ports})\\b" || true
   echo
   echo "期望："
   echo "0.0.0.0:443          nginx"
@@ -1344,11 +1591,13 @@ check_services_ports() {
     echo "127.0.0.1:${route_port}   xray xhttp 入站 ${route_path}"
   done <<< "${XHTTP_ROUTES:-${XHTTP_PATH}|${XHTTP_PORT}}"
   echo "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}    x-ui 面板后端"
+  [ -n "${SUB_PORT:-}" ] && echo "${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}    x-ui 订阅后端"
 }
 
 test_endpoints() {
   load_config
   detect_xui_panel_settings || true
+  detect_xui_sub_settings || true
   blue "测试网站 / 面板 / xhttp 公网入口路径"
   echo "本机经 Nginx 测试静态网站："
   curl -k -I --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true
@@ -1363,11 +1612,17 @@ test_endpoints() {
   echo
   echo "本机经 Nginx 测试面板："
   curl -k -I --max-time 10 --resolve "${PANEL_DOMAIN}:443:127.0.0.1" "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}" || true
+  if [ -n "${SUB_PUBLIC_PATH:-}" ]; then
+    echo
+    echo "本机经 Nginx 测试订阅入口："
+    curl -k -I --max-time 10 --resolve "${PANEL_DOMAIN}:443:127.0.0.1" "https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}" || true
+  fi
   echo
   read -r -p "是否也测试公网域名？[y/N]: " ok
   if [[ "$ok" =~ ^[Yy]$ ]]; then
     curl -I --max-time 20 "https://${DOMAIN}/" || true
     curl -I --max-time 20 "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}" || true
+    [ -n "${SUB_PUBLIC_PATH:-}" ] && curl -I --max-time 20 "https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}" || true
   fi
 }
 
@@ -1388,6 +1643,7 @@ install_shortcut() {
 consistency_check() {
   load_config
   detect_xui_panel_settings || true
+  detect_xui_sub_settings || true
   blue "检查 Nginx 与 3x-ui 当前状态是否匹配"
   [ -n "${XHTTP_ROUTES:-}" ] || XHTTP_ROUTES="${XHTTP_PATH}|${XHTTP_PORT}"
   local ok=1 inbound_match=0 i port path route_path route_port
@@ -1428,6 +1684,14 @@ consistency_check() {
     red "警告：Nginx 指向 127.0.0.1:${PANEL_PORT}，但没有看到该端口监听"
     ok=0
   fi
+  if [ -n "${SUB_PORT:-}" ]; then
+    if ss -lntp | grep -q ":${SUB_PORT}\\b"; then
+      green "OK：订阅后端端口 ${SUB_PORT} 正在监听"
+    else
+      red "警告：Nginx 指向 127.0.0.1:${SUB_PORT}，但没有看到该端口监听"
+      ok=0
+    fi
+  fi
   if ss -lntp | grep -q ":443\\b.*nginx"; then
     green "OK：443 由 nginx 监听"
   else
@@ -1448,6 +1712,14 @@ consistency_check() {
   else
     red "警告：没有找到 Nginx -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH} 的面板反代"
     ok=0
+  fi
+  if [ -n "${SUB_PORT:-}" ]; then
+    if grep -Rqs "proxy_pass ${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}" /etc/nginx/conf.d; then
+      green "OK：Nginx 订阅反代端口匹配"
+    else
+      red "警告：没有找到 Nginx -> ${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH} 的订阅反代"
+      ok=0
+    fi
   fi
   echo
   if [ "$ok" = "1" ]; then

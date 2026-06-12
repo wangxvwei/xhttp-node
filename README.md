@@ -20,6 +20,8 @@ This script is intentionally conservative:
 - The panel backend port, protocol, and public path are read from 3x-ui and are not normal editable prompts. Change them in 3x-ui first, then rerun this script.
 - The script does not create or edit xhttp inbounds in 3x-ui. Create the xhttp inbound manually in the panel first.
 - When configuring Nginx, the script reads existing 3x-ui xhttp inbounds from the VPS and can proxy all, multiple selected, or one selected inbound by Path and local port.
+- It can also read the enabled 3x-ui subscription service and add a panel-domain reverse proxy such as `https://panel.example.com/dingyue/ -> http://127.0.0.1:2096/dingyue/`.
+- For subscription reverse proxy, the script prints the public URI that should be filled into 3x-ui's reverse proxy URI field. It still does not write to the 3x-ui database.
 - The default static site includes a custom `404.html` with a home button so meaningless non-xhttp paths do not expose the default Nginx error page.
 - Nginx changes are backed up and tested before reload; failed tests roll back automatically.
 
@@ -29,6 +31,7 @@ Main flow:
 <domain>/                 -> static site directory from VPS config/input
 <domain>/<xhttp-path>     -> 127.0.0.1:<xhttp-port>  (read from a 3x-ui xhttp inbound)
 <panel-domain>/<path>     -> detected 3x-ui panel backend
+<panel-domain>/<sub-path> -> detected 3x-ui subscription backend
 ```
 
 Usage on a fresh Debian/Ubuntu VPS:
