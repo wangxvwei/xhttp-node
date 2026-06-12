@@ -12,10 +12,10 @@ DOMAIN=""
 PANEL_DOMAIN=""
 XHTTP_PATH="/api/v1/sync"
 XHTTP_PORT="10000"
-PANEL_PORT="2053"
-PANEL_SCHEME="http"
+PANEL_PORT=""
+PANEL_SCHEME=""
 PANEL_PUBLIC_PATH="/xui/"
-PANEL_BACKEND_PATH="/"
+PANEL_BACKEND_PATH=""
 WEB_ROOT=""
 CERT_FILE=""
 KEY_FILE=""
@@ -49,10 +49,7 @@ load_config() {
   [ -n "${PANEL_DOMAIN:-}" ] || {
     if [ -n "${DOMAIN:-}" ]; then PANEL_DOMAIN="panel.${DOMAIN}"; fi
   }
-  [ -n "${PANEL_PORT:-}" ] || PANEL_PORT="2053"
-  [ -n "${PANEL_SCHEME:-}" ] || PANEL_SCHEME="http"
   [ -n "${PANEL_PUBLIC_PATH:-}" ] || PANEL_PUBLIC_PATH="/xui/"
-  [ -n "${PANEL_BACKEND_PATH:-}" ] || PANEL_BACKEND_PATH="/"
   [ -n "${WEB_ROOT:-}" ] || {
     if [ -n "${DOMAIN:-}" ]; then WEB_ROOT="/var/www/${DOMAIN}"; fi
   }
@@ -253,6 +250,16 @@ PY
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
 }
 
+save_detected_xui_panel_settings() {
+  load_config
+  if detect_xui_panel_settings; then
+    save_config
+    green "已同步 3x-ui 面板后端默认值到 ${CONFIG_FILE}"
+  else
+    yellow "暂时没有读取到 3x-ui 面板端口；后续配置 Nginx 时会提示你手动确认。"
+  fi
+}
+
 backup_path() {
   local path="$1"
   local stamp
@@ -312,12 +319,14 @@ install_or_check_3xui() {
   if command -v x-ui >/dev/null 2>&1 || [ -x /usr/local/x-ui/x-ui ]; then
     green "检测到 3x-ui 已安装。"
     systemctl status x-ui --no-pager -l | sed -n '1,14p' || true
+    save_detected_xui_panel_settings
     return 0
   fi
   yellow "未检测到 3x-ui。"
   read -r -p "是否使用官方脚本安装 3x-ui？[y/N]: " ok
   [[ "$ok" =~ ^[Yy]$ ]] || return 0
   bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/master/install.sh)
+  save_detected_xui_panel_settings
 }
 
 install_cert_files() {
@@ -384,10 +393,8 @@ cf_issue_origin_cert() {
   WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
   XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
   XHTTP_PORT="${XHTTP_PORT:-10000}"
-  PANEL_PORT="${PANEL_PORT:-2053}"
-  PANEL_SCHEME="${PANEL_SCHEME:-http}"
+  detect_xui_panel_settings || true
   PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
-  PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH:-/}"
   save_config
 
   echo
@@ -568,10 +575,8 @@ cf_existing_cert() {
   WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
   XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
   XHTTP_PORT="${XHTTP_PORT:-10000}"
-  PANEL_PORT="${PANEL_PORT:-2053}"
-  PANEL_SCHEME="${PANEL_SCHEME:-http}"
+  detect_xui_panel_settings || true
   PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
-  PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH:-/}"
   save_config
   install_cert_files "$src_cert" "$src_key"
 }
@@ -922,7 +927,7 @@ check_panel_listen() {
   curl -k -sS -D - --max-time 8 "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}" -o /tmp/xhttp-node-panel-check 2>&1 | sed -n '1,14p' || true
   echo
   yellow "如果本机检测不通，请确认 3x-ui 当前端口、SSL 状态和 Web Base Path。"
-  yellow "你截图里的 3x-ui 是：http://127.0.0.1:2053/，也就是端口 2053、后端协议 http、后端路径 /。"
+  yellow "脚本会优先读取 3x-ui 当前配置；如果读取不到，请用 x-ui -> 10 查看真实端口和路径后手动填写。"
   yellow "如果本机通但公网不通，请执行 4 配置 Nginx 443 分流，或检查 Cloudflare DNS/小云朵。"
 }
 
