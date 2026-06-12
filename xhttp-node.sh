@@ -128,9 +128,10 @@ prompt_common() {
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   if [ -z "${XHTTP_PATH:-}" ]; then
     XHTTP_PATH="$(generate_xhttp_path)"
-    yellow "已随机生成 xhttp 路径：${XHTTP_PATH}"
+    yellow "已随机生成 Nginx xhttp 公网入口路径：${XHTTP_PATH}"
+    yellow "安装完成后，请在 3x-ui 新建 xhttp 入站时填写同一个 Path。"
   fi
-  prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-}"
+  prompt_default XHTTP_PATH "请输入 Nginx xhttp 公网入口路径（稍后在 3x-ui 入站填同一个 Path）" "${XHTTP_PATH:-}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
   prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
   if [ -n "${PANEL_PORT:-}" ] && [ -n "${PANEL_SCHEME:-}" ] && [ -n "${PANEL_BACKEND_PATH:-}" ]; then
@@ -156,8 +157,8 @@ validate_port() {
 validate_common() {
   [ -n "$DOMAIN" ] || { red "主域名不能为空。"; return 1; }
   [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
-  [[ "$XHTTP_PATH" == /* ]] || { red "xhttp 路径必须以 / 开头。"; return 1; }
-  [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "xhttp 路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
+  [[ "$XHTTP_PATH" == /* ]] || { red "Nginx xhttp 公网入口路径必须以 / 开头。"; return 1; }
+  [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "Nginx xhttp 公网入口路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == /* ]] || { red "面板公网路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_BACKEND_PATH" == /* ]] || { red "面板后端路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == */ ]] || PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH}/"
@@ -765,10 +766,10 @@ nginx_standard() {
   echo
   green "当前分流："
   echo "https://${DOMAIN}/            -> ${WEB_ROOT}"
-  echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}"
+  echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}（Nginx 预留，3x-ui 入站 Path 需一致）"
   echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}  -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   echo
-  echo "下一步建议：8. 检查端口和服务状态；9. 测试网站 / 面板 / xhttp 路径"
+  echo "下一步建议：先在 3x-ui 添加 xhttp 入站并填写同一个 Path，再执行 8/9 检查。"
 }
 
 nginx_xhttp_only() {
@@ -964,6 +965,8 @@ print_xhttp_params() {
   cat <<EOF
 3x-ui xhttp 入站推荐填写：
 
+说明：下面的 Path 必须和第 4 步 Nginx xhttp 公网入口路径一致。
+
 协议：VLESS
 监听 IP：127.0.0.1
 端口：${XHTTP_PORT}
@@ -1002,11 +1005,11 @@ check_services_ports() {
 test_endpoints() {
   load_config
   detect_xui_panel_settings || true
-  blue "测试网站 / 面板 / xhttp 路径"
+  blue "测试网站 / 面板 / xhttp 公网入口路径"
   echo "本机经 Nginx 测试静态网站："
   curl -k -I --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true
   echo
-  echo "本机经 Nginx 测试 xhttp 路径（普通 curl 返回 404/空响应可能正常）："
+  echo "本机经 Nginx 测试 xhttp 公网入口路径（普通 curl 返回 404/空响应可能正常）："
   curl -k -i --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}${XHTTP_PATH}" | sed -n '1,16p' || true
   echo
   echo "本机经 Nginx 测试面板："
@@ -1092,7 +1095,7 @@ main_menu() {
     echo "6. 检查 3x-ui 面板监听"
     echo "7. 输出 xhttp 入站填写参数"
     echo "8. 检查端口和服务状态"
-    echo "9. 测试网站 / 面板 / xhttp 路径"
+    echo "9. 测试网站 / 面板 / xhttp 公网入口路径"
     echo "10. 备份当前配置"
     echo "11. 恢复上一次备份"
     echo "12. 安装/修复快捷命令"
