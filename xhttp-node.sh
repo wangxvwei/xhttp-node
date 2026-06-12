@@ -93,46 +93,12 @@ prompt_default() {
   printf -v "$var_name" '%s' "$value"
 }
 
-generate_xhttp_path() {
-  local bases suffix
-  bases=(
-    "/api/v1/sync"
-    "/api/v1/events"
-    "/api/v1/updates"
-    "/api/v2/stream"
-    "/api/v2/session"
-    "/service/v1/connect"
-    "/service/v1/notify"
-    "/gateway/v1/data"
-    "/gateway/v2/relay"
-    "/static/api/resource"
-    "/assets/api/update"
-    "/media/api/list"
-    "/data/v1/push"
-    "/data/v2/pull"
-    "/rpc/v1/channel"
-    "/rpc/v2/message"
-  )
-  if command -v openssl >/dev/null 2>&1; then
-    suffix="$(openssl rand -hex 4)"
-  else
-    suffix="$(date +%s | sha256sum | awk '{print substr($1,1,8)}')"
-  fi
-  printf "%s/%s" "${bases[RANDOM % ${#bases[@]}]}" "$suffix"
-}
-
 prompt_common() {
   load_config
   detect_xui_panel_settings || true
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
-  if [ -z "${XHTTP_PATH:-}" ]; then
-    XHTTP_PATH="$(generate_xhttp_path)"
-    yellow "已随机生成 Nginx xhttp 公网入口路径：${XHTTP_PATH}"
-    yellow "安装完成后，请在 3x-ui 新建 xhttp 入站时填写同一个 Path。"
-  fi
-  prompt_default XHTTP_PATH "请输入 Nginx xhttp 公网入口路径（稍后在 3x-ui 入站填同一个 Path）" "${XHTTP_PATH:-}"
-  prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
+  select_xui_xhttp_inbound || return 1
   prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
   if [ -n "${PANEL_PORT:-}" ] && [ -n "${PANEL_SCHEME:-}" ] && [ -n "${PANEL_BACKEND_PATH:-}" ]; then
     yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
@@ -144,7 +110,7 @@ prompt_common() {
   prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
-  validate_common
+  validate_common || return 1
   save_config
 }
 
@@ -280,6 +246,209 @@ PY
   PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
   yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
+}
+
+detect_xui_xhttp_inbounds() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  local detected
+  detected="$(python3 <<'PY' 2>/dev/null || true
+import json
+import os
+import shlex
+import sqlite3
+
+db_candidates = [
+    "/etc/x-ui/x-ui.db",
+    "/usr/local/x-ui/bin/x-ui.db",
+    "/usr/local/x-ui/x-ui.db",
+]
+
+def useful(value):
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if value.lower() in {"", "null", "none", "<nil>"}:
+        return ""
+    return value
+
+def norm_path(value):
+    value = useful(value)
+    if not value:
+        return ""
+    if not value.startswith("/"):
+        value = "/" + value
+    return value
+
+def load_json(value):
+    value = useful(value)
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+def get_path(stream_settings):
+    if not isinstance(stream_settings, dict):
+        return ""
+    for key in ("xhttpSettings", "splithttpSettings", "splitHTTPSettings"):
+        settings = stream_settings.get(key)
+        if isinstance(settings, dict):
+            path = norm_path(settings.get("path"))
+            if path:
+                return path
+    stack = [stream_settings]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if str(key).lower() == "path":
+                    path = norm_path(value)
+                    if path:
+                        return path
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(value for value in item if isinstance(value, (dict, list)))
+    return ""
+
+records = []
+source_db = ""
+
+for candidate in db_candidates:
+    if not os.path.exists(candidate):
+        continue
+    try:
+        conn = sqlite3.connect(f"file:{candidate}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cur.fetchall()]
+        for table in tables:
+            if "inbound" not in table.lower():
+                continue
+            quoted_table = '"' + table.replace('"', '""') + '"'
+            try:
+                cur.execute(f"PRAGMA table_info({quoted_table})")
+                cols = [row[1] for row in cur.fetchall()]
+                if not cols:
+                    continue
+                lower_cols = {c.lower(): c for c in cols}
+                if "stream_settings" not in lower_cols and "streamsettings" not in lower_cols:
+                    continue
+                cur.execute(f"SELECT * FROM {quoted_table}")
+                for row in cur.fetchall():
+                    data = {key: row[key] for key in row.keys()}
+                    stream_col = lower_cols.get("stream_settings") or lower_cols.get("streamsettings")
+                    stream_settings = load_json(data.get(stream_col))
+                    network = useful(stream_settings.get("network")).lower()
+                    if network not in {"xhttp", "splithttp"}:
+                        continue
+                    port = useful(data.get(lower_cols.get("port", "port")))
+                    try:
+                        port_num = int(port)
+                        if port_num < 1 or port_num > 65535:
+                            continue
+                    except Exception:
+                        continue
+                    path = get_path(stream_settings)
+                    if not path:
+                        continue
+                    records.append({
+                        "id": useful(data.get(lower_cols.get("id", "id"))),
+                        "remark": useful(data.get(lower_cols.get("remark", "remark"))),
+                        "listen": useful(data.get(lower_cols.get("listen", "listen"))) or "0.0.0.0",
+                        "port": str(port_num),
+                        "path": path,
+                        "protocol": useful(data.get(lower_cols.get("protocol", "protocol"))),
+                        "enable": useful(data.get(lower_cols.get("enable", "enable"))),
+                    })
+            except Exception:
+                continue
+        conn.close()
+        if records:
+            source_db = candidate
+            break
+    except Exception:
+        continue
+
+print(f"DETECTED_XHTTP_COUNT={len(records)}")
+if source_db:
+    print(f"DETECTED_XHTTP_DB={shlex.quote(source_db)}")
+for index, record in enumerate(records, 1):
+    for key, value in record.items():
+        print(f"DETECTED_XHTTP_{index}_{key.upper()}={shlex.quote(str(value))}")
+PY
+)"
+  [ -n "$detected" ] || return 1
+  eval "$detected"
+  [ "${DETECTED_XHTTP_COUNT:-0}" -gt 0 ] || return 1
+}
+
+select_xui_xhttp_inbound() {
+  if ! detect_xui_xhttp_inbounds; then
+    red "没有从 3x-ui 读取到 xhttp 入站。"
+    red "请先在 3x-ui 面板中添加 xhttp 入站，再回来执行本步骤。"
+    echo
+    echo "建议入站关键项：监听 127.0.0.1，传输 xhttp，TLS/Security none，Path 在面板里自行设置。"
+    return 1
+  fi
+
+  local count choice default_choice i id remark listen port path protocol enable
+  count="${DETECTED_XHTTP_COUNT:-0}"
+  default_choice=""
+  echo
+  yellow "已从 3x-ui 读取到 xhttp 入站："
+  [ -n "${DETECTED_XHTTP_DB:-}" ] && yellow "配置来源：${DETECTED_XHTTP_DB}（只读）"
+  echo
+
+  for i in $(seq 1 "$count"); do
+    eval "id=\${DETECTED_XHTTP_${i}_ID:-}"
+    eval "remark=\${DETECTED_XHTTP_${i}_REMARK:-}"
+    eval "listen=\${DETECTED_XHTTP_${i}_LISTEN:-}"
+    eval "port=\${DETECTED_XHTTP_${i}_PORT:-}"
+    eval "path=\${DETECTED_XHTTP_${i}_PATH:-}"
+    eval "protocol=\${DETECTED_XHTTP_${i}_PROTOCOL:-}"
+    eval "enable=\${DETECTED_XHTTP_${i}_ENABLE:-}"
+    echo "${i}. 备注: ${remark:-无}  ID: ${id:-未知}"
+    echo "   协议: ${protocol:-未知}  启用: ${enable:-未知}"
+    echo "   监听: ${listen:-0.0.0.0}  端口: ${port}  Path: ${path}"
+    if [ -z "$default_choice" ] && [ "${XHTTP_PORT:-}" = "$port" ] && [ "${XHTTP_PATH:-}" = "$path" ]; then
+      default_choice="$i"
+    fi
+  done
+
+  if [ "$count" = "1" ]; then
+    choice="1"
+    echo
+    green "只检测到一个 xhttp 入站，已自动选择。"
+  else
+    [ -n "$default_choice" ] || default_choice="1"
+    echo
+    read -r -p "请选择用于 Nginx 分流的 xhttp 入站 [默认: ${default_choice}]: " choice
+    [ -n "$choice" ] || choice="$default_choice"
+  fi
+
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
+    red "选择无效。"
+    return 1
+  fi
+
+  eval "XHTTP_PORT=\${DETECTED_XHTTP_${choice}_PORT:-}"
+  eval "XHTTP_PATH=\${DETECTED_XHTTP_${choice}_PATH:-}"
+  eval "listen=\${DETECTED_XHTTP_${choice}_LISTEN:-}"
+
+  validate_port "$XHTTP_PORT" || { red "读取到的 xhttp 端口无效。"; return 1; }
+  [[ "$XHTTP_PATH" == /* ]] || { red "读取到的 xhttp Path 无效。"; return 1; }
+  [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "读取到的 xhttp Path 包含 Nginx 不接受的字符。"; return 1; }
+
+  yellow "Nginx 将使用 3x-ui 入站：${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}"
+  if [ -n "$listen" ] && [ "$listen" != "127.0.0.1" ] && [ "$listen" != "localhost" ]; then
+    yellow "提醒：该入站监听为 ${listen}，建议在 3x-ui 中改成 127.0.0.1 后重新执行本步骤。"
+  fi
 }
 
 save_detected_xui_panel_settings() {
@@ -766,10 +935,10 @@ nginx_standard() {
   echo
   green "当前分流："
   echo "https://${DOMAIN}/            -> ${WEB_ROOT}"
-  echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}（Nginx 预留，3x-ui 入站 Path 需一致）"
+  echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}（来自 3x-ui xhttp 入站）"
   echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}  -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   echo
-  echo "下一步建议：先在 3x-ui 添加 xhttp 入站并填写同一个 Path，再执行 8/9 检查。"
+  echo "下一步建议：执行 8/9 检查端口和访问路径。"
 }
 
 nginx_xhttp_only() {
@@ -962,10 +1131,14 @@ check_panel_listen() {
 
 print_xhttp_params() {
   load_config
+  if [ -z "${XHTTP_PORT:-}" ] || [ -z "${XHTTP_PATH:-}" ]; then
+    select_xui_xhttp_inbound || return 1
+    save_config
+  fi
   cat <<EOF
-3x-ui xhttp 入站推荐填写：
+当前 xhttp 入站 / 客户端参数：
 
-说明：下面的 Path 必须和第 4 步 Nginx xhttp 公网入口路径一致。
+说明：端口和 Path 来自 3x-ui 已有 xhttp 入站；Nginx 会反代到这个本机端口。
 
 协议：VLESS
 监听 IP：127.0.0.1
@@ -1040,7 +1213,25 @@ consistency_check() {
   load_config
   detect_xui_panel_settings || true
   blue "检查 Nginx 与 3x-ui 当前状态是否匹配"
-  local ok=1
+  local ok=1 inbound_match=0 i port path
+  if detect_xui_xhttp_inbounds; then
+    for i in $(seq 1 "${DETECTED_XHTTP_COUNT:-0}"); do
+      eval "port=\${DETECTED_XHTTP_${i}_PORT:-}"
+      eval "path=\${DETECTED_XHTTP_${i}_PATH:-}"
+      if [ "$port" = "${XHTTP_PORT:-}" ] && [ "$path" = "${XHTTP_PATH:-}" ]; then
+        inbound_match=1
+      fi
+    done
+    if [ "$inbound_match" = "1" ]; then
+      green "OK：Nginx 使用的 xhttp 端口和 Path 仍存在于 3x-ui 入站中"
+    else
+      red "警告：当前保存的 xhttp 端口/Path 没有匹配到 3x-ui 入站，请重新执行 4 配置 Nginx 分流"
+      ok=0
+    fi
+  else
+    red "警告：没有从 3x-ui 读取到 xhttp 入站"
+    ok=0
+  fi
   if ss -lntp | grep -q "127.0.0.1:${XHTTP_PORT}\\b"; then
     green "OK：xhttp 后端端口 127.0.0.1:${XHTTP_PORT} 正在监听"
   else

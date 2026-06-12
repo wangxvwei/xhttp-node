@@ -14,19 +14,19 @@ This script is intentionally conservative:
 
 - It does not write to the 3x-ui database.
 - It prepares system packages, Cloudflare Origin certificates, Nginx routing, static site directories, backups, checks, and a shortcut command.
-- It prints the parameters that should be filled in manually inside the 3x-ui panel.
+- It prints the selected 3x-ui inbound and client-facing parameters after reading the VPS configuration.
 - It reads the current 3x-ui panel port and web base path from the VPS when possible, instead of assuming a fixed panel backend port.
 - If the 3x-ui panel backend path is `/`, the panel subdomain proxies `/` so absolute assets such as `/assets/...` keep working.
 - The panel backend port, protocol, and backend path are read from 3x-ui and are not normal editable prompts. Change them in 3x-ui first, then rerun this script.
-- If no xhttp path is saved yet, the script generates a normal-looking Nginx public entry path from built-in templates and a short random suffix, then saves it.
-- The script does not create the xhttp inbound in 3x-ui. Create that inbound manually after Nginx setup, and use the same Path and local port shown by this script.
+- The script does not create or edit xhttp inbounds in 3x-ui. Create the xhttp inbound manually in the panel first.
+- When configuring Nginx, the script reads existing 3x-ui xhttp inbounds from the VPS and uses the selected inbound's Path and local port.
 - Nginx changes are backed up and tested before reload; failed tests roll back automatically.
 
 Main flow:
 
 ```text
 <domain>/                 -> static site directory from VPS config/input
-<domain>/<xhttp-path>     -> 127.0.0.1:<xhttp-port>  (Nginx entry; match this Path in 3x-ui)
+<domain>/<xhttp-path>     -> 127.0.0.1:<xhttp-port>  (read from a 3x-ui xhttp inbound)
 <panel-domain>/<path>     -> detected 3x-ui panel backend
 ```
 
