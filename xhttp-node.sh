@@ -12,7 +12,10 @@ DOMAIN=""
 PANEL_DOMAIN=""
 XHTTP_PATH="/api/v1/sync"
 XHTTP_PORT="10000"
-PANEL_PORT="2070"
+PANEL_PORT="2053"
+PANEL_SCHEME="http"
+PANEL_PUBLIC_PATH="/xui/"
+PANEL_BACKEND_PATH="/"
 WEB_ROOT=""
 CERT_FILE=""
 KEY_FILE=""
@@ -46,6 +49,10 @@ load_config() {
   [ -n "${PANEL_DOMAIN:-}" ] || {
     if [ -n "${DOMAIN:-}" ]; then PANEL_DOMAIN="panel.${DOMAIN}"; fi
   }
+  [ -n "${PANEL_PORT:-}" ] || PANEL_PORT="2053"
+  [ -n "${PANEL_SCHEME:-}" ] || PANEL_SCHEME="http"
+  [ -n "${PANEL_PUBLIC_PATH:-}" ] || PANEL_PUBLIC_PATH="/xui/"
+  [ -n "${PANEL_BACKEND_PATH:-}" ] || PANEL_BACKEND_PATH="/"
   [ -n "${WEB_ROOT:-}" ] || {
     if [ -n "${DOMAIN:-}" ]; then WEB_ROOT="/var/www/${DOMAIN}"; fi
   }
@@ -59,12 +66,15 @@ load_config() {
 
 save_config() {
   ensure_dirs
-  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_panel_port q_web_root q_cert_file q_key_file
+  local q_domain q_panel_domain q_xhttp_path q_xhttp_port q_panel_port q_panel_scheme q_panel_public_path q_panel_backend_path q_web_root q_cert_file q_key_file
   q_domain="$(printf "%s" "$DOMAIN" | sed "s/'/'\\\\''/g")"
   q_panel_domain="$(printf "%s" "$PANEL_DOMAIN" | sed "s/'/'\\\\''/g")"
   q_xhttp_path="$(printf "%s" "$XHTTP_PATH" | sed "s/'/'\\\\''/g")"
   q_xhttp_port="$(printf "%s" "$XHTTP_PORT" | sed "s/'/'\\\\''/g")"
   q_panel_port="$(printf "%s" "$PANEL_PORT" | sed "s/'/'\\\\''/g")"
+  q_panel_scheme="$(printf "%s" "$PANEL_SCHEME" | sed "s/'/'\\\\''/g")"
+  q_panel_public_path="$(printf "%s" "$PANEL_PUBLIC_PATH" | sed "s/'/'\\\\''/g")"
+  q_panel_backend_path="$(printf "%s" "$PANEL_BACKEND_PATH" | sed "s/'/'\\\\''/g")"
   q_web_root="$(printf "%s" "$WEB_ROOT" | sed "s/'/'\\\\''/g")"
   q_cert_file="$(printf "%s" "$CERT_FILE" | sed "s/'/'\\\\''/g")"
   q_key_file="$(printf "%s" "$KEY_FILE" | sed "s/'/'\\\\''/g")"
@@ -74,6 +84,9 @@ PANEL_DOMAIN='${q_panel_domain}'
 XHTTP_PATH='${q_xhttp_path}'
 XHTTP_PORT='${q_xhttp_port}'
 PANEL_PORT='${q_panel_port}'
+PANEL_SCHEME='${q_panel_scheme}'
+PANEL_PUBLIC_PATH='${q_panel_public_path}'
+PANEL_BACKEND_PATH='${q_panel_backend_path}'
 WEB_ROOT='${q_web_root}'
 CERT_FILE='${q_cert_file}'
 KEY_FILE='${q_key_file}'
@@ -98,7 +111,10 @@ prompt_common() {
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
   prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-/api/v1/sync}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-10000}"
-  prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-2070}"
+  prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-2053}"
+  prompt_default PANEL_SCHEME "请输入面板后端协议 http/https" "${PANEL_SCHEME:-http}"
+  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-/xui/}"
+  prompt_default PANEL_BACKEND_PATH "请输入面板后端路径" "${PANEL_BACKEND_PATH:-/}"
   prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-/var/www/${DOMAIN}}"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-/root/cert/${DOMAIN}/fullchain.pem}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-/root/cert/${DOMAIN}/privkey.pem}"
@@ -116,6 +132,11 @@ validate_common() {
   [ -n "$DOMAIN" ] || { red "主域名不能为空。"; return 1; }
   [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
   [[ "$XHTTP_PATH" == /* ]] || { red "xhttp 路径必须以 / 开头。"; return 1; }
+  [[ "$PANEL_PUBLIC_PATH" == /* ]] || { red "面板公网路径必须以 / 开头。"; return 1; }
+  [[ "$PANEL_BACKEND_PATH" == /* ]] || { red "面板后端路径必须以 / 开头。"; return 1; }
+  [[ "$PANEL_PUBLIC_PATH" == */ ]] || PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH}/"
+  [[ "$PANEL_BACKEND_PATH" == */ ]] || PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH}/"
+  [[ "$PANEL_SCHEME" == "http" || "$PANEL_SCHEME" == "https" ]] || { red "面板后端协议只能是 http 或 https。"; return 1; }
   validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
   validate_port "$PANEL_PORT" || { red "面板端口无效。"; return 1; }
 }
@@ -251,7 +272,10 @@ cf_issue_origin_cert() {
   WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
   XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
   XHTTP_PORT="${XHTTP_PORT:-10000}"
-  PANEL_PORT="${PANEL_PORT:-2070}"
+  PANEL_PORT="${PANEL_PORT:-2053}"
+  PANEL_SCHEME="${PANEL_SCHEME:-http}"
+  PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
+  PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH:-/}"
   save_config
 
   echo
@@ -432,7 +456,10 @@ cf_existing_cert() {
   WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
   XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
   XHTTP_PORT="${XHTTP_PORT:-10000}"
-  PANEL_PORT="${PANEL_PORT:-2070}"
+  PANEL_PORT="${PANEL_PORT:-2053}"
+  PANEL_SCHEME="${PANEL_SCHEME:-http}"
+  PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
+  PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH:-/}"
   save_config
   install_cert_files "$src_cert" "$src_key"
 }
@@ -546,8 +573,12 @@ server {
     ssl_certificate ${CERT_FILE};
     ssl_certificate_key ${KEY_FILE};
 
-    location / {
-        proxy_pass https://127.0.0.1:${PANEL_PORT};
+    location = ${PANEL_PUBLIC_PATH%/} {
+        return 301 ${PANEL_PUBLIC_PATH};
+    }
+
+    location ${PANEL_PUBLIC_PATH} {
+        proxy_pass ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH};
         proxy_http_version 1.1;
         proxy_ssl_verify off;
         proxy_set_header Host 127.0.0.1:${PANEL_PORT};
@@ -590,7 +621,7 @@ nginx_standard() {
   green "当前分流："
   echo "https://${DOMAIN}/            -> ${WEB_ROOT}"
   echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}"
-  echo "https://${PANEL_DOMAIN}/xui/  -> 127.0.0.1:${PANEL_PORT}"
+  echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}  -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   echo
   echo "下一步建议：8. 检查端口和服务状态；9. 测试网站 / 面板 / xhttp 路径"
 }
@@ -761,23 +792,24 @@ PY
 check_panel_listen() {
   load_config
   blue "检查 3x-ui 面板监听"
+  echo "当前 xhttp-node 面板配置："
+  echo "公网入口：https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}"
+  echo "后端地址：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
+  echo
   systemctl is-active x-ui || true
   ss -lntp | grep -E ":${PANEL_PORT}\\b" || true
   echo
   echo "公网访问面板链接："
-  echo "https://${PANEL_DOMAIN}/xui/"
+  echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}"
   echo
   echo "本机直连检测地址："
-  echo "https://127.0.0.1:${PANEL_PORT}/xui/"
-  echo "http://127.0.0.1:${PANEL_PORT}/xui/"
+  echo "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   echo
-  echo "检测 https 本机面板："
-  curl -k -sS -D - --max-time 8 "https://127.0.0.1:${PANEL_PORT}/xui/" -o /tmp/xhttp-node-panel-check-https 2>&1 | sed -n '1,14p' || true
+  echo "检测本机面板："
+  curl -k -sS -D - --max-time 8 "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}" -o /tmp/xhttp-node-panel-check 2>&1 | sed -n '1,14p' || true
   echo
-  echo "检测 http 本机面板："
-  curl -sS -D - --max-time 8 "http://127.0.0.1:${PANEL_PORT}/xui/" -o /tmp/xhttp-node-panel-check-http 2>&1 | sed -n '1,14p' || true
-  echo
-  yellow "如果本机检测不通，请在 3x-ui 面板中设置：监听 127.0.0.1，端口 ${PANEL_PORT}，路径 /xui/"
+  yellow "如果本机检测不通，请确认 3x-ui 当前端口、SSL 状态和 Web Base Path。"
+  yellow "你截图里的 3x-ui 是：http://127.0.0.1:2053/，也就是端口 2053、后端协议 http、后端路径 /。"
   yellow "如果本机通但公网不通，请执行 4 配置 Nginx 443 分流，或检查 Cloudflare DNS/小云朵。"
 }
 
@@ -817,7 +849,7 @@ check_services_ports() {
   echo "期望："
   echo "0.0.0.0:443          nginx"
   echo "127.0.0.1:${XHTTP_PORT}   xray xhttp 入站"
-  echo "127.0.0.1:${PANEL_PORT}    x-ui 面板后端"
+  echo "${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}    x-ui 面板后端"
 }
 
 test_endpoints() {
@@ -830,12 +862,12 @@ test_endpoints() {
   curl -k -i --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}${XHTTP_PATH}" | sed -n '1,16p' || true
   echo
   echo "本机经 Nginx 测试面板："
-  curl -k -I --max-time 10 --resolve "${PANEL_DOMAIN}:443:127.0.0.1" "https://${PANEL_DOMAIN}/xui/" || true
+  curl -k -I --max-time 10 --resolve "${PANEL_DOMAIN}:443:127.0.0.1" "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}" || true
   echo
   read -r -p "是否也测试公网域名？[y/N]: " ok
   if [[ "$ok" =~ ^[Yy]$ ]]; then
     curl -I --max-time 20 "https://${DOMAIN}/" || true
-    curl -I --max-time 20 "https://${PANEL_DOMAIN}/xui/" || true
+    curl -I --max-time 20 "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}" || true
   fi
 }
 
@@ -863,10 +895,10 @@ consistency_check() {
     red "警告：Nginx 指向 127.0.0.1:${XHTTP_PORT}，但没有看到该本机端口监听"
     ok=0
   fi
-  if ss -lntp | grep -q "127.0.0.1:${PANEL_PORT}\\b"; then
-    green "OK：面板后端端口 127.0.0.1:${PANEL_PORT} 正在监听"
+  if ss -lntp | grep -q ":${PANEL_PORT}\\b"; then
+    green "OK：面板后端端口 ${PANEL_PORT} 正在监听"
   else
-    red "警告：Nginx 指向 127.0.0.1:${PANEL_PORT}，但没有看到该本机端口监听"
+    red "警告：Nginx 指向 127.0.0.1:${PANEL_PORT}，但没有看到该端口监听"
     ok=0
   fi
   if ss -lntp | grep -q ":443\\b.*nginx"; then
@@ -881,10 +913,10 @@ consistency_check() {
     red "警告：没有找到 Nginx -> 127.0.0.1:${XHTTP_PORT} 的 xhttp 反代"
     ok=0
   fi
-  if grep -Rqs "proxy_pass https://127.0.0.1:${PANEL_PORT}" /etc/nginx/conf.d; then
+  if grep -Rqs "proxy_pass ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}" /etc/nginx/conf.d; then
     green "OK：Nginx 面板反代端口匹配"
   else
-    red "警告：没有找到 Nginx -> 127.0.0.1:${PANEL_PORT} 的面板反代"
+    red "警告：没有找到 Nginx -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH} 的面板反代"
     ok=0
   fi
   echo

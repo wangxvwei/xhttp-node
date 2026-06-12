@@ -22,7 +22,7 @@ Main flow:
 ```text
 57330.xyz/              -> static site
 57330.xyz/api/v1/sync   -> 127.0.0.1:10000 xhttp
-panel.57330.xyz/xui/    -> 127.0.0.1:2070 3x-ui panel
+panel.57330.xyz/xui/    -> http://127.0.0.1:2053/ 3x-ui panel
 ```
 
 Usage on a fresh Debian/Ubuntu VPS:
