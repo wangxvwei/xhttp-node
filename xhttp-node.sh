@@ -93,24 +93,30 @@ prompt_default() {
   printf -v "$var_name" '%s' "$value"
 }
 
-prompt_common() {
+prompt_xhttp_proxy() {
   load_config
-  detect_xui_panel_settings || true
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
-  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   select_xui_xhttp_inbound || return 1
-  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
-  if [ -n "${PANEL_PORT:-}" ] && [ -n "${PANEL_SCHEME:-}" ] && [ -n "${PANEL_BACKEND_PATH:-}" ]; then
-    yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
-  else
+  prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+  prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
+  prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
+  validate_xhttp_proxy || return 1
+  save_config
+}
+
+prompt_panel_proxy() {
+  load_config
+  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
+  if ! detect_xui_panel_settings; then
     red "没有读取到 3x-ui 面板后端配置。"
     red "请先执行 2 安装/检查 3x-ui，或用 x-ui -> 10 查看当前设置。"
     return 1
   fi
-  prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+  yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
+  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
-  validate_common || return 1
+  validate_panel_proxy || return 1
   save_config
 }
 
@@ -120,17 +126,20 @@ validate_port() {
   [ "$value" -ge 1 ] && [ "$value" -le 65535 ]
 }
 
-validate_common() {
+validate_xhttp_proxy() {
   [ -n "$DOMAIN" ] || { red "主域名不能为空。"; return 1; }
-  [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
   [[ "$XHTTP_PATH" == /* ]] || { red "Nginx xhttp 公网入口路径必须以 / 开头。"; return 1; }
   [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "Nginx xhttp 公网入口路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
+  validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
+}
+
+validate_panel_proxy() {
+  [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == /* ]] || { red "面板公网路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_BACKEND_PATH" == /* ]] || { red "面板后端路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == */ ]] || PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH}/"
   [[ "$PANEL_BACKEND_PATH" == */ ]] || PANEL_BACKEND_PATH="${PANEL_BACKEND_PATH}/"
   [[ "$PANEL_SCHEME" == "http" || "$PANEL_SCHEME" == "https" ]] || { red "面板后端协议只能是 http 或 https。"; return 1; }
-  validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
   validate_port "$PANEL_PORT" || { red "面板端口无效。"; return 1; }
 }
 
@@ -910,9 +919,9 @@ server {
 EOF
 }
 
-nginx_standard() {
-  blue "配置标准 Nginx 443 分流"
-  prompt_common
+nginx_xhttp_only() {
+  blue "只配置 xhttp 分流"
+  prompt_xhttp_proxy || return 1
   [ -f "$CERT_FILE" ] || { red "证书不存在：$CERT_FILE"; return 1; }
   [ -f "$KEY_FILE" ] || { red "私钥不存在：$KEY_FILE"; return 1; }
   local nginx_snapshot
@@ -921,46 +930,23 @@ nginx_standard() {
   backup_now
   disable_default_nginx_site
   mkdir -p "$WEB_ROOT"
-  if [ ! -f "$WEB_ROOT/index.html" ]; then
-    echo "<!doctype html><meta charset=\"utf-8\"><title>${DOMAIN}</title><h1>${DOMAIN}</h1><p>OK</p>" > "$WEB_ROOT/index.html"
-  fi
-  chown -R www-data:www-data "$WEB_ROOT" 2>/dev/null || true
   write_nginx_domain_conf
-  write_nginx_panel_conf
   if ! nginx_test_reload_with_rollback "$nginx_snapshot"; then
     rm -rf "$nginx_snapshot"
     return 1
   fi
   rm -rf "$nginx_snapshot"
   echo
-  green "当前分流："
+  green "当前 xhttp 分流："
   echo "https://${DOMAIN}/            -> ${WEB_ROOT}"
   echo "https://${DOMAIN}${XHTTP_PATH} -> 127.0.0.1:${XHTTP_PORT}（来自 3x-ui xhttp 入站）"
-  echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH}  -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
-  echo
-  echo "下一步建议：执行 8/9 检查端口和访问路径。"
-}
-
-nginx_xhttp_only() {
-  blue "只配置 xhttp 分流"
-  prompt_common
-  local nginx_snapshot
-  nginx_snapshot="$(mktemp -d /tmp/xhttp-node-nginx-before.XXXXXX)"
-  cp -a /etc/nginx "$nginx_snapshot/nginx"
-  backup_now
-  disable_default_nginx_site
-  mkdir -p "$WEB_ROOT"
-  write_nginx_domain_conf
-  if ! nginx_test_reload_with_rollback "$nginx_snapshot"; then
-    rm -rf "$nginx_snapshot"
-    return 1
-  fi
-  rm -rf "$nginx_snapshot"
 }
 
 nginx_panel_only() {
   blue "只配置面板反代"
-  prompt_common
+  prompt_panel_proxy || return 1
+  [ -f "$CERT_FILE" ] || { red "证书不存在：$CERT_FILE"; return 1; }
+  [ -f "$KEY_FILE" ] || { red "私钥不存在：$KEY_FILE"; return 1; }
   local nginx_snapshot
   nginx_snapshot="$(mktemp -d /tmp/xhttp-node-nginx-before.XXXXXX)"
   cp -a /etc/nginx "$nginx_snapshot/nginx"
@@ -971,6 +957,9 @@ nginx_panel_only() {
     return 1
   fi
   rm -rf "$nginx_snapshot"
+  echo
+  green "当前面板反代："
+  echo "https://${PANEL_DOMAIN}${PANEL_PUBLIC_PATH} -> ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}（来自 3x-ui 面板设置）"
 }
 
 view_nginx_config() {
@@ -1002,24 +991,22 @@ nginx_menu() {
     clear
     echo "Nginx 443 分流配置"
     echo
-    echo "1. 配置标准结构（推荐）"
-    echo "2. 只配置 xhttp 分流"
-    echo "3. 只配置面板反代"
-    echo "4. 查看当前 Nginx 分流配置"
-    echo "5. 测试 Nginx 配置并重载"
-    echo "6. 禁用面板 443 反代"
-    echo "7. 恢复上一次配置备份"
+    echo "1. 只配置 xhttp 分流"
+    echo "2. 只配置面板反代"
+    echo "3. 查看当前 Nginx 分流配置"
+    echo "4. 测试 Nginx 配置并重载"
+    echo "5. 禁用面板 443 反代"
+    echo "6. 恢复上一次配置备份"
     echo "0. 返回主菜单"
     echo
     read -r -p "请选择: " choice
     case "$choice" in
-      1) nginx_standard; pause ;;
-      2) nginx_xhttp_only; pause ;;
-      3) nginx_panel_only; pause ;;
-      4) view_nginx_config; pause ;;
-      5) nginx_test_reload_with_rollback; pause ;;
-      6) disable_panel_proxy; pause ;;
-      7) restore_latest_backup; pause ;;
+      1) nginx_xhttp_only; pause ;;
+      2) nginx_panel_only; pause ;;
+      3) view_nginx_config; pause ;;
+      4) nginx_test_reload_with_rollback; pause ;;
+      5) disable_panel_proxy; pause ;;
+      6) restore_latest_backup; pause ;;
       0) return ;;
       *) yellow "无效选择"; pause ;;
     esac
