@@ -2,6 +2,14 @@
 
 Menu-driven helper script for preparing a VPS to run a 3x-ui xhttp node behind Nginx and Cloudflare.
 
+## One-Command Install
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/wangxvwei/xhttp-node/main/install.sh)
+```
+
+If this repository is private, the command above will not work from a fresh VPS unless GitHub authentication is provided. For a 3x-ui-style public one-command installer, make the repository public first.
+
 This script is intentionally conservative:
 
 - It does not write to the 3x-ui database.
@@ -20,8 +28,8 @@ panel.57330.xyz/xui/    -> 127.0.0.1:2070 3x-ui panel
 Usage on a fresh Debian/Ubuntu VPS:
 
 ```bash
-chmod +x outputs/xhttp-node.sh
-sudo ./outputs/xhttp-node.sh
+chmod +x xhttp-node.sh
+sudo ./xhttp-node.sh
 ```
 
 After installing the shortcut from the menu, run:
