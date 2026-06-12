@@ -10,11 +10,11 @@ BACKUP_DIR="/root/xhttp-node-backups"
 
 DOMAIN=""
 PANEL_DOMAIN=""
-XHTTP_PATH="/api/v1/sync"
-XHTTP_PORT="10000"
+XHTTP_PATH=""
+XHTTP_PORT=""
 PANEL_PORT=""
 PANEL_SCHEME=""
-PANEL_PUBLIC_PATH="/xui/"
+PANEL_PUBLIC_PATH=""
 PANEL_BACKEND_PATH=""
 WEB_ROOT=""
 CERT_FILE=""
@@ -48,16 +48,6 @@ load_config() {
   fi
   [ -n "${PANEL_DOMAIN:-}" ] || {
     if [ -n "${DOMAIN:-}" ]; then PANEL_DOMAIN="panel.${DOMAIN}"; fi
-  }
-  [ -n "${PANEL_PUBLIC_PATH:-}" ] || PANEL_PUBLIC_PATH="/xui/"
-  [ -n "${WEB_ROOT:-}" ] || {
-    if [ -n "${DOMAIN:-}" ]; then WEB_ROOT="/var/www/${DOMAIN}"; fi
-  }
-  [ -n "${CERT_FILE:-}" ] || {
-    if [ -n "${DOMAIN:-}" ]; then CERT_FILE="/root/cert/${DOMAIN}/fullchain.pem"; fi
-  }
-  [ -n "${KEY_FILE:-}" ] || {
-    if [ -n "${DOMAIN:-}" ]; then KEY_FILE="/root/cert/${DOMAIN}/privkey.pem"; fi
   }
 }
 
@@ -96,8 +86,12 @@ prompt_default() {
   local label="$2"
   local default_value="$3"
   local value
-  read -r -p "${label} [默认: ${default_value}]: " value
-  if [ -z "$value" ]; then value="$default_value"; fi
+  if [ -n "$default_value" ]; then
+    read -r -p "${label} [默认: ${default_value}]: " value
+    if [ -z "$value" ]; then value="$default_value"; fi
+  else
+    read -r -p "${label} [无默认，必须输入]: " value
+  fi
   value="$(printf "%s" "$value" | LC_ALL=C tr -d '[:cntrl:]')"
   printf -v "$var_name" '%s' "$value"
 }
@@ -107,15 +101,15 @@ prompt_common() {
   detect_xui_panel_settings || true
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
-  prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-/api/v1/sync}"
-  prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-10000}"
-  prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-2053}"
-  prompt_default PANEL_SCHEME "请输入面板后端协议 http/https" "${PANEL_SCHEME:-http}"
-  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-/xui/}"
-  prompt_default PANEL_BACKEND_PATH "请输入面板后端路径" "${PANEL_BACKEND_PATH:-/}"
-  prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-/var/www/${DOMAIN}}"
-  prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-/root/cert/${DOMAIN}/fullchain.pem}"
-  prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-/root/cert/${DOMAIN}/privkey.pem}"
+  prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-}"
+  prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
+  prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-}"
+  prompt_default PANEL_SCHEME "请输入面板后端协议 http/https" "${PANEL_SCHEME:-}"
+  prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
+  prompt_default PANEL_BACKEND_PATH "请输入面板后端路径" "${PANEL_BACKEND_PATH:-}"
+  prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+  prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
+  prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
   validate_common
   save_config
 }
@@ -245,7 +239,6 @@ PY
   PANEL_PORT="$DETECTED_PANEL_PORT"
   PANEL_BACKEND_PATH="${DETECTED_PANEL_BACKEND_PATH:-/}"
   PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
-  [ -n "${PANEL_PUBLIC_PATH:-}" ] || PANEL_PUBLIC_PATH="/xui/"
   yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
 }
@@ -390,11 +383,7 @@ cf_issue_origin_cert() {
   blue "使用 Cloudflare API 自动签发 Origin 证书"
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
-  WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
-  XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
-  XHTTP_PORT="${XHTTP_PORT:-10000}"
   detect_xui_panel_settings || true
-  PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
   save_config
 
   echo
@@ -570,13 +559,9 @@ cf_existing_cert() {
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
   local src_cert src_key
-  prompt_default src_cert "请输入已有证书文件路径" "/root/cf-origin.pem"
-  prompt_default src_key "请输入已有私钥文件路径" "/root/cf-origin.key"
-  WEB_ROOT="${WEB_ROOT:-/var/www/${DOMAIN}}"
-  XHTTP_PATH="${XHTTP_PATH:-/api/v1/sync}"
-  XHTTP_PORT="${XHTTP_PORT:-10000}"
+  prompt_default src_cert "请输入已有证书文件路径" "${CERT_FILE:-}"
+  prompt_default src_key "请输入已有私钥文件路径" "${KEY_FILE:-}"
   detect_xui_panel_settings || true
-  PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH:-/xui/}"
   save_config
   install_cert_files "$src_cert" "$src_key"
 }
@@ -848,7 +833,7 @@ static_menu() {
     read -r -p "请选择: " choice
     case "$choice" in
       1)
-        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-/var/www/${DOMAIN:-site}}"
+        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
         mkdir -p "$WEB_ROOT"
         cat > "$WEB_ROOT/index.html" <<EOF
 <!doctype html>
@@ -862,7 +847,7 @@ EOF
         ;;
       2)
         local src
-        prompt_default WEB_ROOT "请输入目标静态网站目录" "${WEB_ROOT:-/var/www/${DOMAIN:-site}}"
+        prompt_default WEB_ROOT "请输入目标静态网站目录" "${WEB_ROOT:-}"
         read -r -p "请输入已有静态网站目录路径: " src
         [ -d "$src" ] || { red "目录不存在：$src"; pause; continue; }
         backup_path "$WEB_ROOT"
@@ -875,7 +860,7 @@ EOF
         ;;
       3)
         local old new
-        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-/var/www/${DOMAIN:-site}}"
+        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
         read -r -p "请输入旧域名: " old
         prompt_default new "请输入新域名" "${DOMAIN:-}"
         [ -n "$old" ] && [ -n "$new" ] || { red "域名不能为空。"; pause; continue; }
