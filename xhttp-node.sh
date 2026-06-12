@@ -764,10 +764,21 @@ check_panel_listen() {
   systemctl is-active x-ui || true
   ss -lntp | grep -E ":${PANEL_PORT}\\b" || true
   echo
-  echo "本机访问面板："
-  curl -k -sS -D - --max-time 8 "https://127.0.0.1:${PANEL_PORT}/xui/" -o /tmp/xhttp-node-panel-check 2>&1 | sed -n '1,14p' || true
+  echo "公网访问面板链接："
+  echo "https://${PANEL_DOMAIN}/xui/"
   echo
-  yellow "如果这里不通，请在 3x-ui 面板中设置：监听 127.0.0.1，端口 ${PANEL_PORT}，路径 /xui/"
+  echo "本机直连检测地址："
+  echo "https://127.0.0.1:${PANEL_PORT}/xui/"
+  echo "http://127.0.0.1:${PANEL_PORT}/xui/"
+  echo
+  echo "检测 https 本机面板："
+  curl -k -sS -D - --max-time 8 "https://127.0.0.1:${PANEL_PORT}/xui/" -o /tmp/xhttp-node-panel-check-https 2>&1 | sed -n '1,14p' || true
+  echo
+  echo "检测 http 本机面板："
+  curl -sS -D - --max-time 8 "http://127.0.0.1:${PANEL_PORT}/xui/" -o /tmp/xhttp-node-panel-check-http 2>&1 | sed -n '1,14p' || true
+  echo
+  yellow "如果本机检测不通，请在 3x-ui 面板中设置：监听 127.0.0.1，端口 ${PANEL_PORT}，路径 /xui/"
+  yellow "如果本机通但公网不通，请执行 4 配置 Nginx 443 分流，或检查 Cloudflare DNS/小云朵。"
 }
 
 print_xhttp_params() {
