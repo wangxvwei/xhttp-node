@@ -129,6 +129,9 @@ validate_port() {
 
 validate_xhttp_proxy() {
   [ -n "$DOMAIN" ] || { red "主域名不能为空。"; return 1; }
+  [ -n "$WEB_ROOT" ] || { red "静态网站目录不能为空。没有现成网站时可填 /var/www/你的主域名"; return 1; }
+  [ -n "$CERT_FILE" ] || { red "证书路径不能为空。"; return 1; }
+  [ -n "$KEY_FILE" ] || { red "私钥路径不能为空。"; return 1; }
   [[ "$XHTTP_PATH" == /* ]] || { red "Nginx xhttp 公网入口路径必须以 / 开头。"; return 1; }
   [[ "$XHTTP_PATH" =~ ^/[A-Za-z0-9._~/-]+$ ]] || { red "Nginx xhttp 公网入口路径只能包含 URL path 安全字符：字母、数字、/、-、_、.、~"; return 1; }
   validate_port "$XHTTP_PORT" || { red "xhttp 端口无效。"; return 1; }
@@ -136,6 +139,8 @@ validate_xhttp_proxy() {
 
 validate_panel_proxy() {
   [ -n "$PANEL_DOMAIN" ] || { red "面板域名不能为空。"; return 1; }
+  [ -n "$CERT_FILE" ] || { red "证书路径不能为空。"; return 1; }
+  [ -n "$KEY_FILE" ] || { red "私钥路径不能为空。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == /* ]] || { red "面板公网路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_BACKEND_PATH" == /* ]] || { red "面板后端路径必须以 / 开头。"; return 1; }
   [[ "$PANEL_PUBLIC_PATH" == */ ]] || PANEL_PUBLIC_PATH="${PANEL_PUBLIC_PATH}/"
