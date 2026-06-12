@@ -93,11 +93,19 @@ prompt_default() {
   printf -v "$var_name" '%s' "$value"
 }
 
+default_web_root() {
+  if [ -n "${WEB_ROOT:-}" ]; then
+    printf "%s" "$WEB_ROOT"
+  elif [ -n "${DOMAIN:-}" ]; then
+    printf "/var/www/%s" "$DOMAIN"
+  fi
+}
+
 prompt_xhttp_proxy() {
   load_config
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   select_xui_xhttp_inbound || return 1
-  prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+  prompt_default WEB_ROOT "请输入静态网站目录" "$(default_web_root)"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
   validate_xhttp_proxy || return 1
@@ -1034,7 +1042,7 @@ static_menu() {
     read -r -p "请选择: " choice
     case "$choice" in
       1)
-        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+        prompt_default WEB_ROOT "请输入静态网站目录" "$(default_web_root)"
         mkdir -p "$WEB_ROOT"
         cat > "$WEB_ROOT/index.html" <<EOF
 <!doctype html>
@@ -1048,7 +1056,7 @@ EOF
         ;;
       2)
         local src
-        prompt_default WEB_ROOT "请输入目标静态网站目录" "${WEB_ROOT:-}"
+        prompt_default WEB_ROOT "请输入目标静态网站目录" "$(default_web_root)"
         read -r -p "请输入已有静态网站目录路径: " src
         [ -d "$src" ] || { red "目录不存在：$src"; pause; continue; }
         backup_path "$WEB_ROOT"
@@ -1061,7 +1069,7 @@ EOF
         ;;
       3)
         local old new
-        prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
+        prompt_default WEB_ROOT "请输入静态网站目录" "$(default_web_root)"
         read -r -p "请输入旧域名: " old
         prompt_default new "请输入新域名" "${DOMAIN:-}"
         [ -n "$old" ] && [ -n "$new" ] || { red "域名不能为空。"; pause; continue; }
