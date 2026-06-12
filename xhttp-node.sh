@@ -104,6 +104,53 @@ default_web_root() {
   fi
 }
 
+write_default_static_site() {
+  local force="${1:-0}"
+  mkdir -p "$WEB_ROOT"
+  if [ "$force" = "1" ] || [ ! -f "$WEB_ROOT/index.html" ]; then
+    cat > "$WEB_ROOT/index.html" <<EOF
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${DOMAIN:-site}</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Noto Sans SC,Microsoft YaHei,sans-serif;background:#f7f7f4;color:#252525}
+    main{width:min(680px,calc(100% - 40px));line-height:1.7}
+    h1{font-size:32px;margin:0 0 12px}
+    p{color:#666;margin:0}
+  </style>
+</head>
+<body><main><h1>${DOMAIN:-site}</h1><p>OK</p></main></body>
+</html>
+EOF
+  fi
+  if [ "$force" = "1" ] || [ ! -f "$WEB_ROOT/404.html" ]; then
+    cat > "$WEB_ROOT/404.html" <<EOF
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>页面不存在 - ${DOMAIN:-site}</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Noto Sans SC,Microsoft YaHei,sans-serif;background:#f7f7f4;color:#252525}
+    main{width:min(680px,calc(100% - 40px));line-height:1.7}
+    h1{font-size:32px;margin:0 0 12px}
+    p{color:#666;margin:0 0 24px}
+    a{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border:1px solid #2f6f5e;border-radius:6px;color:#fff;background:#2f6f5e;text-decoration:none;font-weight:600}
+    a:hover{background:#285e50}
+  </style>
+</head>
+<body><main><h1>页面不存在</h1><p>这个地址没有可公开访问的内容。</p><a href="/">返回首页</a></main></body>
+</html>
+EOF
+  fi
+  chown -R www-data:www-data "$WEB_ROOT" 2>/dev/null || true
+}
+
 prompt_xhttp_proxy() {
   load_config
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
@@ -979,6 +1026,7 @@ EOF
 server {
     listen 443 ssl http2;
     server_name ${DOMAIN};
+    server_tokens off;
 
     ssl_certificate ${CERT_FILE};
     ssl_certificate_key ${KEY_FILE};
@@ -1013,6 +1061,7 @@ write_nginx_panel_conf() {
 server {
     listen 443 ssl http2;
     server_name ${PANEL_DOMAIN};
+    server_tokens off;
 
     ssl_certificate ${CERT_FILE};
     ssl_certificate_key ${KEY_FILE};
@@ -1049,7 +1098,7 @@ nginx_xhttp_only() {
   cp -a /etc/nginx "$nginx_snapshot/nginx"
   backup_now
   disable_default_nginx_site
-  mkdir -p "$WEB_ROOT"
+  write_default_static_site 0
   write_nginx_domain_conf
   if ! nginx_test_reload_with_rollback "$nginx_snapshot"; then
     rm -rf "$nginx_snapshot"
@@ -1153,15 +1202,9 @@ static_menu() {
     case "$choice" in
       1)
         prompt_default WEB_ROOT "请输入静态网站目录" "$(default_web_root)"
-        mkdir -p "$WEB_ROOT"
-        cat > "$WEB_ROOT/index.html" <<EOF
-<!doctype html>
-<html><head><meta charset="utf-8"><title>${DOMAIN:-site}</title></head>
-<body><h1>${DOMAIN:-site}</h1><p>OK</p></body></html>
-EOF
-        chown -R www-data:www-data "$WEB_ROOT" 2>/dev/null || true
+        write_default_static_site 1
         save_config
-        green "默认静态网站已创建：$WEB_ROOT"
+        green "默认静态网站和自定义 404 已创建：$WEB_ROOT"
         pause
         ;;
       2)
