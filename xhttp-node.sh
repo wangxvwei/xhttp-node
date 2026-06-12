@@ -46,9 +46,6 @@ load_config() {
     # shellcheck disable=SC1090
     . "$CONFIG_FILE"
   fi
-  [ -n "${PANEL_DOMAIN:-}" ] || {
-    if [ -n "${DOMAIN:-}" ]; then PANEL_DOMAIN="panel.${DOMAIN}"; fi
-  }
 }
 
 save_config() {
@@ -100,7 +97,7 @@ prompt_common() {
   load_config
   detect_xui_panel_settings || true
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
-  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
+  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
   prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-}"
@@ -221,14 +218,16 @@ try:
 except Exception:
     port = ""
 
-base_path = norm_path(pick("webBasePath", "web_base_path", "basePath", "webPath", "path") or "/")
+raw_base_path = pick("webBasePath", "web_base_path", "basePath", "webPath", "path")
+base_path = norm_path(raw_base_path) if raw_base_path else ""
 cert_file = pick("webCertFile", "web_cert_file", "certFile", "cert_file")
 key_file = pick("webKeyFile", "web_key_file", "keyFile", "key_file")
 scheme = "https" if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file) else "http"
 
 if port:
     print(f"DETECTED_PANEL_PORT={shlex.quote(port)}")
-    print(f"DETECTED_PANEL_BACKEND_PATH={shlex.quote(base_path)}")
+    if base_path:
+        print(f"DETECTED_PANEL_BACKEND_PATH={shlex.quote(base_path)}")
     print(f"DETECTED_PANEL_SCHEME={shlex.quote(scheme)}")
     print(f"DETECTED_XUI_DB={shlex.quote(db_path)}")
 PY
@@ -237,7 +236,9 @@ PY
   eval "$detected"
   [ -n "${DETECTED_PANEL_PORT:-}" ] || return 1
   PANEL_PORT="$DETECTED_PANEL_PORT"
-  PANEL_BACKEND_PATH="${DETECTED_PANEL_BACKEND_PATH:-/}"
+  if [ -n "${DETECTED_PANEL_BACKEND_PATH:-}" ]; then
+    PANEL_BACKEND_PATH="$DETECTED_PANEL_BACKEND_PATH"
+  fi
   PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
   yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
@@ -382,7 +383,7 @@ verify_cert_pair() {
 cf_issue_origin_cert() {
   blue "使用 Cloudflare API 自动签发 Origin 证书"
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
-  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
+  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   detect_xui_panel_settings || true
   save_config
 
@@ -557,7 +558,7 @@ PY
 cf_existing_cert() {
   blue "使用已有 Cloudflare Origin 证书文件"
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
-  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-panel.${DOMAIN}}"
+  prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   local src_cert src_key
   prompt_default src_cert "请输入已有证书文件路径" "${CERT_FILE:-}"
   prompt_default src_key "请输入已有私钥文件路径" "${KEY_FILE:-}"
