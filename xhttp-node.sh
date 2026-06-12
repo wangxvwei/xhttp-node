@@ -98,6 +98,7 @@ prompt_default() {
   local value
   read -r -p "${label} [默认: ${default_value}]: " value
   if [ -z "$value" ]; then value="$default_value"; fi
+  value="$(printf "%s" "$value" | LC_ALL=C tr -d '[:cntrl:]')"
   printf -v "$var_name" '%s' "$value"
 }
 
@@ -682,6 +683,11 @@ EOF
 
 write_nginx_panel_conf() {
   mkdir -p /etc/nginx/conf.d
+  local panel_location
+  panel_location="$PANEL_PUBLIC_PATH"
+  if [ "$PANEL_BACKEND_PATH" = "/" ]; then
+    panel_location="/"
+  fi
   cat > "/etc/nginx/conf.d/${PANEL_DOMAIN}.conf" <<EOF
 server {
     listen 443 ssl http2;
@@ -694,7 +700,7 @@ server {
         return 301 ${PANEL_PUBLIC_PATH};
     }
 
-    location ${PANEL_PUBLIC_PATH} {
+    location ${panel_location} {
         proxy_pass ${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH};
         proxy_http_version 1.1;
         proxy_ssl_verify off;
