@@ -96,31 +96,21 @@ prompt_default() {
 prompt_common() {
   load_config
   detect_xui_panel_settings || true
-  local detected_panel_port="${DETECTED_PANEL_PORT:-}"
-  local detected_panel_scheme="${DETECTED_PANEL_SCHEME:-}"
-  local detected_panel_backend_path="${DETECTED_PANEL_BACKEND_PATH:-}"
   prompt_default DOMAIN "请输入主域名" "${DOMAIN:-}"
   prompt_default PANEL_DOMAIN "请输入面板域名" "${PANEL_DOMAIN:-}"
   prompt_default XHTTP_PATH "请输入 xhttp 路径" "${XHTTP_PATH:-}"
   prompt_default XHTTP_PORT "请输入 xhttp 本机端口" "${XHTTP_PORT:-}"
-  prompt_default PANEL_PORT "请输入面板本机端口" "${PANEL_PORT:-}"
-  prompt_default PANEL_SCHEME "请输入面板后端协议 http/https" "${PANEL_SCHEME:-}"
   prompt_default PANEL_PUBLIC_PATH "请输入面板公网路径" "${PANEL_PUBLIC_PATH:-}"
-  prompt_default PANEL_BACKEND_PATH "请输入面板后端路径" "${PANEL_BACKEND_PATH:-}"
+  if [ -n "${PANEL_PORT:-}" ] && [ -n "${PANEL_SCHEME:-}" ] && [ -n "${PANEL_BACKEND_PATH:-}" ]; then
+    yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
+  else
+    red "没有读取到 3x-ui 面板后端配置。"
+    red "请先执行 2 安装/检查 3x-ui，或用 x-ui -> 10 查看当前设置。"
+    return 1
+  fi
   prompt_default WEB_ROOT "请输入静态网站目录" "${WEB_ROOT:-}"
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
-  if [ -n "$detected_panel_port" ] && [ "$PANEL_PORT" != "$detected_panel_port" ]; then
-    yellow "注意：3x-ui 当前实际面板端口是 ${detected_panel_port}，你输入的是 ${PANEL_PORT}。"
-    yellow "这里不会同步修改 3x-ui，只会让 Nginx 反代到你输入的端口。"
-    read -r -p "确认继续使用 ${PANEL_PORT} 作为 Nginx 面板后端端口？[y/N]: " ok
-    if ! [[ "$ok" =~ ^[Yy]$ ]]; then
-      PANEL_PORT="$detected_panel_port"
-      [ -n "$detected_panel_scheme" ] && PANEL_SCHEME="$detected_panel_scheme"
-      [ -n "$detected_panel_backend_path" ] && PANEL_BACKEND_PATH="$detected_panel_backend_path"
-      yellow "已恢复为 3x-ui 当前读取到的面板后端。"
-    fi
-  fi
   validate_common
   save_config
 }
