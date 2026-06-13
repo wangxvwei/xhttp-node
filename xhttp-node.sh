@@ -369,7 +369,7 @@ except Exception:
     port = ""
 
 raw_base_path = pick("webBasePath", "web_base_path", "basePath", "webPath", "path")
-base_path = norm_path(raw_base_path) if raw_base_path else ""
+base_path = norm_path(raw_base_path) if raw_base_path else "/"
 cert_file = pick("webCertFile", "web_cert_file", "certFile", "cert_file")
 key_file = pick("webKeyFile", "web_key_file", "keyFile", "key_file")
 scheme = "https" if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file) else "http"
@@ -386,9 +386,7 @@ PY
   eval "$detected"
   [ -n "${DETECTED_PANEL_PORT:-}" ] || return 1
   PANEL_PORT="$DETECTED_PANEL_PORT"
-  if [ -n "${DETECTED_PANEL_BACKEND_PATH:-}" ]; then
-    PANEL_BACKEND_PATH="$DETECTED_PANEL_BACKEND_PATH"
-  fi
+  PANEL_BACKEND_PATH="${DETECTED_PANEL_BACKEND_PATH:-/}"
   PANEL_SCHEME="${DETECTED_PANEL_SCHEME:-http}"
   yellow "已读取 3x-ui 当前面板配置：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   [ -n "${DETECTED_XUI_DB:-}" ] && yellow "配置来源：${DETECTED_XUI_DB}（只读）"
@@ -506,7 +504,7 @@ PY
   SUB_ENABLE="true"
   SUB_PORT="$DETECTED_SUB_PORT"
   SUB_BACKEND_PATH="$DETECTED_SUB_BACKEND_PATH"
-  [ -n "${SUB_PUBLIC_PATH:-}" ] || SUB_PUBLIC_PATH="$SUB_BACKEND_PATH"
+  SUB_PUBLIC_PATH="$SUB_BACKEND_PATH"
   SUB_SCHEME="${DETECTED_SUB_SCHEME:-http}"
   [ -n "${PANEL_DOMAIN:-}" ] && SUB_PUBLIC_URI="https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}"
   yellow "已读取 3x-ui 当前订阅配置：${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}"
@@ -832,6 +830,84 @@ show_detected_3xui_state() {
   else
     yellow "没有读取到 xhttp 入站。"
   fi
+}
+
+print_usage_guide() {
+  cat <<'EOF'
+xhttp-node 使用说明 / 推荐流程
+
+核心原则：
+- 3x-ui 官方脚本/面板是 3x-ui 配置的主导方。
+- xhttp-node 不创建 3x-ui 入站，不改 3x-ui 客户端，不强行决定面板/订阅后端是 HTTP 还是 HTTPS。
+- xhttp-node 每次配置 Nginx 时，都会重新读取 3x-ui 当前状态，并按当前状态适配。
+- 所以首次使用不是严格按 1 -> 2 -> 3 -> 4 走，而是 1 -> 2 -> 14 -> 配好 3x-ui -> 14 -> 3 -> 4。
+
+全新 VPS 推荐流程：
+
+1. 先在 Cloudflare 准备 DNS
+   - 主域名 A 记录 -> VPS IP，小云朵开启
+   - 面板域名 A 记录 -> VPS IP，小云朵开启
+   - SSL/TLS 模式使用 Full (Strict)
+
+2. 执行 1：安装基础环境
+   - 安装 nginx、curl、openssl、socat 等基础组件
+
+3. 执行 2：安装/检查 3x-ui
+   - 如果没有 3x-ui，会调用官方 3x-ui 安装脚本
+   - 安装完成后，先让 3x-ui 官方脚本/面板配置稳定
+   - 面板端口、面板路径、面板 SSL、订阅端口、订阅路径、订阅 SSL 都以 3x-ui 当前状态为准
+
+4. 先执行 14：查看 3x-ui 当前状态（只读）
+   - 确认脚本能读到面板后端，例如 http/https://127.0.0.1:端口/路径
+   - 确认脚本能读到订阅后端（如果启用了订阅）
+   - 确认脚本能读到 xhttp 入站
+
+5. 在 3x-ui 面板里手动添加 xhttp 入站
+   建议：
+   - 协议：VLESS
+   - 监听 IP：127.0.0.1
+   - 端口：例如 15000
+   - 传输：xhttp
+   - Path：例如 /api/v3/sync
+   - TLS / Security：none
+
+   添加完成后建议再执行一次 14，确认脚本已经能读取到这个 xhttp 入站。
+
+6. 执行 3：配置 Cloudflare 域名和源站证书
+   - 证书会保存到 /root/cert/主域名/
+   - Nginx 对外使用这套证书
+
+7. 执行 4：配置 Nginx 443 分流
+   子菜单建议依次执行：
+   - 1. 只配置 xhttp 分流
+   - 2. 只配置面板反代
+   - 3. 只配置订阅反代（如果启用了订阅）
+
+8. 可选执行 5：配置静态网站目录
+   - 默认目录是 /var/www/主域名
+   - 会创建默认首页和自定义 404 页面
+
+9. 最后检查
+   - 8. 检查端口和服务状态
+   - 9. 测试网站 / 面板 / xhttp 公网入口路径
+   - 13. 检查 Nginx 与 3x-ui 配置是否匹配
+
+如果以后修改了 3x-ui：
+- 修改了面板端口/路径/SSL
+- 修改了订阅端口/路径/SSL
+- 修改了 xhttp 入站端口/Path
+
+请重新执行：
+- 14. 查看 3x-ui 当前状态（只读）
+- 4. 配置 Nginx 443 分流
+- 13. 检查 Nginx 与 3x-ui 配置是否匹配
+
+常见判断：
+- 如果 3x-ui 当前后端是 HTTP，Nginx 会反代到 http://127.0.0.1:端口。
+- 如果 3x-ui 当前后端是 HTTPS，Nginx 会反代到 https://127.0.0.1:端口，并关闭上游证书校验。
+- xhttp 入站本机后端仍按 HTTP 反代；公网 TLS 由 Cloudflare/Nginx 处理。
+- 订阅基础路径 /dingyue/ 单独访问 404 可能正常；客户端要用带订阅 ID 的完整链接。
+EOF
 }
 
 backup_path() {
@@ -1791,6 +1867,7 @@ main_menu() {
   while true; do
     clear
     echo "xhttp-node 管理脚本"
+    echo "首次使用建议先看：15. 使用说明 / 推荐流程"
     echo
     echo "1. 安装基础环境"
     echo "2. 安装/检查 3x-ui"
@@ -1806,6 +1883,7 @@ main_menu() {
     echo "12. 安装/修复快捷命令"
     echo "13. 检查 Nginx 与 3x-ui 配置是否匹配"
     echo "14. 查看 3x-ui 当前状态（只读）"
+    echo "15. 使用说明 / 推荐流程"
     echo "0. 退出"
     echo
     read -r -p "请选择: " choice
@@ -1824,6 +1902,7 @@ main_menu() {
       12) install_shortcut; pause ;;
       13) consistency_check; pause ;;
       14) print_3xui_boundary_note; show_detected_3xui_state; pause ;;
+      15) print_usage_guide; pause ;;
       0) exit 0 ;;
       *) yellow "无效选择"; pause ;;
     esac

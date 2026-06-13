@@ -42,6 +42,25 @@ chmod +x xhttp-node.sh
 sudo ./xhttp-node.sh
 ```
 
+First-time flow is intentionally not a strict `1 -> 2 -> 3 -> 4` sequence. Open the built-in guide first:
+
+```text
+15. 使用说明 / 推荐流程
+```
+
+The usual order is:
+
+```text
+1. 安装基础环境
+2. 安装/检查 3x-ui
+14. 查看 3x-ui 当前状态（只读）
+在 3x-ui 中完成面板/订阅/xhttp 入站配置
+14. 再次查看 3x-ui 当前状态（只读）
+3. 配置 Cloudflare 域名和源站证书
+4. 配置 Nginx 443 分流
+8/9/13. 检查
+```
+
 After installing the shortcut from the menu, run:
 
 ```bash
