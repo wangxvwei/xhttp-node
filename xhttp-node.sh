@@ -191,6 +191,11 @@ prompt_panel_proxy() {
   yellow "面板后端从 3x-ui 当前配置读取：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
   PANEL_PUBLIC_PATH="$PANEL_BACKEND_PATH"
   yellow "面板公网路径自动使用 3x-ui Web Base Path：${PANEL_PUBLIC_PATH}"
+  if detect_xui_sub_settings; then
+    SUB_PUBLIC_PATH="$SUB_BACKEND_PATH"
+    SUB_PUBLIC_URI="https://${PANEL_DOMAIN}${SUB_PUBLIC_PATH}"
+    yellow "已同步当前订阅后端状态：${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}"
+  fi
   prompt_default CERT_FILE "请输入证书路径" "${CERT_FILE:-}"
   prompt_default KEY_FILE "请输入私钥路径" "${KEY_FILE:-}"
   validate_panel_proxy || return 1
@@ -785,6 +790,50 @@ save_detected_xui_panel_settings() {
   fi
 }
 
+print_3xui_boundary_note() {
+  echo
+  yellow "配置边界：3x-ui 官方脚本/面板为主，xhttp-node 只适配当前状态。"
+  echo "3x-ui 负责：面板端口/路径/SSL、订阅端口/路径/SSL、xhttp 入站、客户端、出站和路由。"
+  echo "xhttp-node 负责：Cloudflare Origin 证书放置、Nginx 反代、静态网站、备份和检查。"
+  echo
+  yellow "重要：安装或更新 3x-ui 后，请先让 3x-ui 当前状态稳定，再配置 Nginx。"
+  echo "如果 3x-ui 后端当前是 HTTP，Nginx 会用 http://127.0.0.1:端口。"
+  echo "如果 3x-ui 后端当前是 HTTPS，Nginx 会用 https://127.0.0.1:端口 并关闭上游证书校验。"
+  echo "xhttp 入站仍按本机 HTTP 反代；TLS 由 Cloudflare/Nginx 对外统一处理。"
+}
+
+show_detected_3xui_state() {
+  load_config
+  blue "当前 3x-ui 状态（只读）"
+  if detect_xui_panel_settings; then
+    echo "面板后端：${PANEL_SCHEME}://127.0.0.1:${PANEL_PORT}${PANEL_BACKEND_PATH}"
+  else
+    yellow "没有读取到面板后端配置。"
+  fi
+  if detect_xui_sub_settings; then
+    echo "订阅后端：${SUB_SCHEME}://127.0.0.1:${SUB_PORT}${SUB_BACKEND_PATH}"
+    [ -n "${SUB_PUBLIC_URI:-}" ] && echo "订阅公网 URI：${SUB_PUBLIC_URI}"
+  else
+    yellow "没有读取到已启用的订阅服务。"
+  fi
+  if detect_xui_xhttp_inbounds; then
+    local i listen port path protocol enable remark
+    echo
+    echo "xhttp 入站："
+    for i in $(seq 1 "${DETECTED_XHTTP_COUNT:-0}"); do
+      eval "remark=\${DETECTED_XHTTP_${i}_REMARK:-}"
+      eval "listen=\${DETECTED_XHTTP_${i}_LISTEN:-}"
+      eval "port=\${DETECTED_XHTTP_${i}_PORT:-}"
+      eval "path=\${DETECTED_XHTTP_${i}_PATH:-}"
+      eval "protocol=\${DETECTED_XHTTP_${i}_PROTOCOL:-}"
+      eval "enable=\${DETECTED_XHTTP_${i}_ENABLE:-}"
+      echo "${i}. ${remark:-无备注}  ${protocol:-未知}  启用:${enable:-未知}  ${listen:-0.0.0.0}:${port}${path}"
+    done
+  else
+    yellow "没有读取到 xhttp 入站。"
+  fi
+}
+
 backup_path() {
   local path="$1"
   local stamp
@@ -845,6 +894,8 @@ install_or_check_3xui() {
     green "检测到 3x-ui 已安装。"
     systemctl status x-ui --no-pager -l | sed -n '1,14p' || true
     save_detected_xui_panel_settings
+    print_3xui_boundary_note
+    show_detected_3xui_state
     return 0
   fi
   yellow "未检测到 3x-ui。"
@@ -852,6 +903,10 @@ install_or_check_3xui() {
   [[ "$ok" =~ ^[Yy]$ ]] || return 0
   bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/master/install.sh)
   save_detected_xui_panel_settings
+  print_3xui_boundary_note
+  show_detected_3xui_state
+  echo
+  green "下一步建议：先用 x-ui 官方菜单确认面板/订阅/xhttp 配置，再执行 4 配置 Nginx 443 分流。"
 }
 
 install_cert_files() {
@@ -1750,6 +1805,7 @@ main_menu() {
     echo "11. 恢复上一次备份"
     echo "12. 安装/修复快捷命令"
     echo "13. 检查 Nginx 与 3x-ui 配置是否匹配"
+    echo "14. 查看 3x-ui 当前状态（只读）"
     echo "0. 退出"
     echo
     read -r -p "请选择: " choice
@@ -1767,6 +1823,7 @@ main_menu() {
       11) restore_latest_backup; pause ;;
       12) install_shortcut; pause ;;
       13) consistency_check; pause ;;
+      14) print_3xui_boundary_note; show_detected_3xui_state; pause ;;
       0) exit 0 ;;
       *) yellow "无效选择"; pause ;;
     esac

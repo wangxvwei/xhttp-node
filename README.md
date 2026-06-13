@@ -16,6 +16,7 @@ This script is intentionally conservative:
 - It prepares system packages, Cloudflare Origin certificates, Nginx routing, static site directories, backups, checks, and a shortcut command.
 - It prints the selected 3x-ui inbound and client-facing parameters after reading the VPS configuration.
 - It reads the current 3x-ui panel port and web base path from the VPS when possible, instead of assuming a fixed panel backend port.
+- 3x-ui is the source of truth for panel/subscription ports, paths, and backend HTTP/HTTPS state. Nginx proxy settings are regenerated from the current 3x-ui state.
 - If the 3x-ui panel backend path is `/`, the panel subdomain proxies `/` so absolute assets such as `/assets/...` keep working.
 - The panel backend port, protocol, and public path are read from 3x-ui and are not normal editable prompts. Change them in 3x-ui first, then rerun this script.
 - The script does not create or edit xhttp inbounds in 3x-ui. Create the xhttp inbound manually in the panel first.
